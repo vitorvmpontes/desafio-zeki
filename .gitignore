@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+
+# Ambiente
+.env
+*.env.local
+
+# Dados (mantemos apenas a amostra pequena versionada em data/sample)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+*.parquet
+*.zip
+
+# Modelos treinados (artefatos grandes; publicados via release, não versionados)
+ml/artifacts/*.pkl
+ml/artifacts/*.joblib
+!ml/artifacts/.gitkeep
+
+# Notebooks — checkpoints
+.ipynb_checkpoints/
+
+# Editor / SO
+.DS_Store
+.vscode/
+.idea/
+*.swp
