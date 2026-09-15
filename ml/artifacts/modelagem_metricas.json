@@ -1,0 +1,37 @@
+{
+  "modelo_escolhido": "gradient_boosting",
+  "alvo": "fec_aprox",
+  "comparacao": {
+    "persistencia_t-1 (naive, so p/ referencia)": {
+      "mae": 0.002454,
+      "rmse": 0.003832,
+      "spearman": 0.881866,
+      "precisao_top10pct": 0.766801
+    },
+    "glm_poisson": {
+      "mae": 0.002322,
+      "rmse": 0.003645,
+      "spearman": 0.896317,
+      "precisao_top10pct": 0.781082
+    },
+    "glm_binomial_negativa": {
+      "mae": 0.002297,
+      "rmse": 0.003609,
+      "spearman": 0.896604,
+      "precisao_top10pct": 0.77705
+    },
+    "gradient_boosting": {
+      "mae": 0.002294,
+      "rmse": 0.003603,
+      "spearman": 0.90632,
+      "precisao_top10pct": 0.780746
+    },
+    "baseline_dia3 (persistencia t-1 + t-12)": {
+      "mae": 0.00204,
+      "rmse": 0.003132,
+      "spearman": 0.907126,
+      "precisao_top10pct": 0.802419
+    }
+  },
+  "supera_baseline_dia3": false
+}

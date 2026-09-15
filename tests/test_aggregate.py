@@ -1,12 +1,14 @@
+import pandas as pd
 import pytest
 
-from etl.aggregate import aggregate_municipio_mes
+from etl.aggregate import aggregate_conjunto_mes, aggregate_municipio_mes, combine_conjunto_mes
 from etl.clean import clean_interrupcoes
 
 
 def _agregado(raw_df, referencia, bridge):
     limpo = clean_interrupcoes(raw_df)
-    return aggregate_municipio_mes(limpo, bridge=bridge, referencia=referencia)
+    conjunto_mes, causa_cols = aggregate_conjunto_mes(limpo)
+    return aggregate_municipio_mes(conjunto_mes, causa_cols, bridge=bridge, referencia=referencia)
 
 
 def test_fanout_nao_infla_o_total_nacional_de_eventos(raw_df, referencia, bridge):
@@ -79,3 +81,38 @@ def test_mix_de_causas_conta_eventos_validos_por_origem(raw_df, referencia, brid
     # INT0001 = EXTERNA, INT0002 = INTERNA -- uma ocorrencia de cada
     assert ariquemes_jan["causa_externa"] == pytest.approx(1)
     assert ariquemes_jan["causa_interna"] == pytest.approx(1)
+
+
+def test_processar_em_lotes_da_o_mesmo_resultado_que_de_uma_vez(raw_df, referencia, bridge):
+    """`etl.pipeline` le o Parquet real em lotes (nunca os ~19 milhoes de
+    eventos de uma vez -- ver docs/DEVLOG.md) e usa `combine_conjunto_mes`
+    para juntar os resultados parciais. Isso so e seguro se o resultado
+    combinado for IDENTICO a agregar tudo de uma vez -- em particular
+    quando o mesmo conjunto x mes cai espalhado em lotes diferentes (o
+    Parquet nao vem ordenado por conjunto)."""
+    limpo = clean_interrupcoes(raw_df)
+
+    # separa os eventos em dois "lotes" que misturam conjuntos e meses,
+    # como um corte arbitrario de linhas do Parquet faria na pratica.
+    lote_a = limpo.iloc[::2].reset_index(drop=True)
+    lote_b = limpo.iloc[1::2].reset_index(drop=True)
+    assert len(lote_a) > 0 and len(lote_b) > 0
+
+    parte_a, _ = aggregate_conjunto_mes(lote_a)
+    parte_b, _ = aggregate_conjunto_mes(lote_b)
+    conjunto_mes_lotes, causa_cols_lotes = combine_conjunto_mes([parte_a, parte_b])
+    agregado_em_lotes = aggregate_municipio_mes(conjunto_mes_lotes, causa_cols_lotes, bridge=bridge, referencia=referencia)
+
+    conjunto_mes_direto, causa_cols_direto = aggregate_conjunto_mes(limpo)
+    agregado_direto = aggregate_municipio_mes(conjunto_mes_direto, causa_cols_direto, bridge=bridge, referencia=referencia)
+
+    colunas_numericas = [
+        c
+        for c in agregado_direto.columns
+        if c not in ("codigo_ibge_resolvido", "nome_municipio", "uf_sigla", "regiao", "ano", "mes")
+    ]
+    pd.testing.assert_frame_equal(
+        agregado_em_lotes.sort_values(["codigo_ibge_resolvido", "ano", "mes"]).reset_index(drop=True)[colunas_numericas],
+        agregado_direto.sort_values(["codigo_ibge_resolvido", "ano", "mes"]).reset_index(drop=True)[colunas_numericas],
+        check_dtype=False,
+    )

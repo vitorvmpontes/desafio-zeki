@@ -10,8 +10,9 @@ Este projeto está em desenvolvimento ativo (prazo de 7 dias corridos). O checkl
 
 - [x] Análise de requisitos e escopo (`docs/REQUISITOS.md`)
 - [x] Esqueleto do repositório, Docker Compose e CI básico
-- [x] Pipeline de ingestão e limpeza dos dados da ANEEL (`etl/`) — download validado contra o servidor real (18,9M eventos); reescrito para o schema real (ver `docs/DEVLOG.md`); testado com fixtures sintéticas no schema real
-- [ ] Análise exploratória e modelo de previsão de risco (`ml/`)
+- [x] Pipeline de ingestão e limpeza dos dados da ANEEL (`etl/`) — validado de ponta a ponta contra os 18,9M de eventos reais (2024+2025), gerando 131.793 linhas município × mês (ver `docs/DEVLOG.md`)
+- [x] Análise exploratória (`ml/notebooks/01-eda.ipynb`) e baseline de previsão de risco (`ml/notebooks/02-baseline.ipynb`), ambos executados contra o dado real — ver `ml/README.md`
+- [x] Modelo real de previsão de risco (GLM Poisson/binomial negativa + gradient boosting, `ml/`) — validados contra o dado real e comparados ao baseline; modelo final salvo em `ml/artifacts/modelo_final.joblib` — ver `ml/README.md`
 - [ ] API — indicadores, ranking e explicação (`api/`)
 - [ ] Frontend — ranking e detalhe do município (`web/`)
 - [ ] Automação mensal (GitHub Actions)
@@ -44,6 +45,18 @@ pip install -r etl/requirements.txt -r requirements-dev.txt
 python -m etl.download --anos 2024,2025    # precisa de internet ate dadosabertos.aneel.gov.br
 python -m etl.pipeline --anos 2024,2025    # gera data/processed/municipio_mes.parquet
 pytest                                      # roda a suite de testes (nao depende de rede)
+
+# analise exploratoria + baseline + modelagem (notebooks ja executados e
+# commitados em ml/notebooks/ -- so precisa rodar de novo se o dado mudar)
+pip install -r ml/requirements.txt
+python3 -m ipykernel install --user --name python3
+python ml/scripts/build_01_eda_notebook.py
+python ml/scripts/build_02_baseline_notebook.py
+python ml/scripts/build_03_features_notebook.py
+python ml/scripts/build_04_modelagem_notebook.py
+
+# treina e salva o modelo final (ml/artifacts/modelo_final.joblib) que a API vai consumir
+python -m ml.train
 ```
 
 > Nota sobre o download: além dos Parquet anuais, `etl.download` também baixa o de-para conjunto→município da ANEEL ("IndQual Município", `data/raw/indqual_municipio.csv`), necessário para resolver o município de cada interrupção. Ver `etl/README.md`.

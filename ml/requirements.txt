@@ -1,0 +1,21 @@
+pandas==3.0.2
+pyarrow==25.0.1
+numpy==2.4.4
+matplotlib==3.10.9
+scikit-learn==1.8.0
+statsmodels==0.15.0
+joblib==1.5.3
+
+# so usado em ml/notebooks/04-modelagem.ipynb para a analise de
+# interpretabilidade (comparada com a importancia por permutacao, que nao
+# precisa de nenhuma dependencia extra -- ver o notebook e docs/DEVLOG.md)
+shap==0.51.0
+
+# so necessario para RECONSTRUIR os notebooks a partir de ml/scripts/build_*.py
+# (executa o notebook de verdade, com um kernel jupyter, em vez de so escrever
+# codigo sem saida) -- nao e preciso para so ABRIR e ler os notebooks ja
+# commitados em ml/notebooks/.
+nbformat==5.11.1
+nbclient==0.11.0
+ipykernel==7.3.0
+jupyter_client==8.10.0

@@ -1,0 +1,50 @@
+{
+  "baseline_escolhido": "blend_t-1_e_t-12",
+  "alvo": "fec_aprox",
+  "periodo_teste": [
+    "2025-01",
+    "2025-02",
+    "2025-03",
+    "2025-04",
+    "2025-05",
+    "2025-06",
+    "2025-07",
+    "2025-08",
+    "2025-09",
+    "2025-10",
+    "2025-11",
+    "2025-12"
+  ],
+  "metricas": {
+    "mae": 0.00204,
+    "rmse": 0.003132,
+    "spearman": 0.907126,
+    "precisao_top10pct": 0.802419
+  },
+  "todos_baselines": {
+    "persistencia_t-1": {
+      "mae": 0.002454,
+      "rmse": 0.003832,
+      "spearman": 0.881866,
+      "precisao_top10pct": 0.766801
+    },
+    "persistencia_sazonal_t-12": {
+      "mae": 0.002612,
+      "rmse": 0.004191,
+      "spearman": 0.859588,
+      "precisao_top10pct": 0.72043
+    },
+    "media_historica_expandida": {
+      "mae": 0.002817,
+      "rmse": 0.004321,
+      "spearman": 0.891501,
+      "precisao_top10pct": 0.750504
+    },
+    "blend_t-1_e_t-12": {
+      "mae": 0.00204,
+      "rmse": 0.003132,
+      "spearman": 0.907126,
+      "precisao_top10pct": 0.802419
+    }
+  }
+}

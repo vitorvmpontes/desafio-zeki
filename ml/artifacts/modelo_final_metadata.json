@@ -1,0 +1,30 @@
+{
+  "modelo": "HistGradientBoostingRegressor (loss=poisson)",
+  "alvo": "fec_aprox",
+  "exposicao": "consumidores_ativos_max",
+  "features_numericas": [
+    "lag_1",
+    "lag_2",
+    "lag_3",
+    "media_movel_3",
+    "media_movel_expandida",
+    "mes_sin",
+    "mes_cos",
+    "log_consumidores",
+    "log_n_eventos_lag_1",
+    "prop_causa_generica_lag_1",
+    "prop_causa_ambiental_lag_1",
+    "n_distribuidoras_lag_1"
+  ],
+  "features_categoricas": [
+    "regiao",
+    "uf_sigla"
+  ],
+  "treinado_em_utc": "2026-09-15T23:14:44.843231+00:00",
+  "linhas_treino": 125621,
+  "periodo_treino_alvo": {
+    "inicio": "2024-02",
+    "fim": "2025-12"
+  },
+  "metricas_de_validacao_referencia": "ver ml/artifacts/modelagem_metricas.json (Dia 4) e ml/artifacts/baseline_metricas.json (Dia 3) -- este modelo foi validado por corte temporal ANTES deste treino final com todos os dados; os números lá continuam valendo como estimativa de desempenho esperado."
+}
