@@ -10,7 +10,7 @@ Este projeto está em desenvolvimento ativo (prazo de 7 dias corridos). O checkl
 
 - [x] Análise de requisitos e escopo (`docs/REQUISITOS.md`)
 - [x] Esqueleto do repositório, Docker Compose e CI básico
-- [x] Pipeline de ingestão e limpeza dos dados da ANEEL (`etl/`) — testado com fixture sintética; download ainda por validar contra o servidor real
+- [x] Pipeline de ingestão e limpeza dos dados da ANEEL (`etl/`) — download validado contra o servidor real (18,9M eventos); reescrito para o schema real (ver `docs/DEVLOG.md`); testado com fixtures sintéticas no schema real
 - [ ] Análise exploratória e modelo de previsão de risco (`ml/`)
 - [ ] API — indicadores, ranking e explicação (`api/`)
 - [ ] Frontend — ranking e detalhe do município (`web/`)
@@ -19,7 +19,7 @@ Este projeto está em desenvolvimento ativo (prazo de 7 dias corridos). O checkl
 
 ## O problema
 
-A ANEEL disponibiliza dados públicos de interrupções de energia, mas em arquivos anuais brutos (ZIP/Parquet de até ~260 MB, 26 colunas com siglas pouco autoexplicativas, sem UF e sem duração calculada) e sem nenhuma API de consulta. Quem precisa entender e priorizar risco de interrupção — um analista de fiscalização da ANEEL, um gestor de manutenção de uma distribuidora — só enxerga indicadores históricos, medidos depois do problema já ter acontecido.
+A ANEEL disponibiliza dados públicos de interrupções de energia, mas em arquivos anuais brutos (Parquet de até ~260 MB por ano, colunas com siglas pouco autoexplicativas, sem duração calculada e sem identificar o município diretamente — só o conjunto de unidades consumidoras) e sem nenhuma API de consulta. Quem precisa entender e priorizar risco de interrupção — um analista de fiscalização da ANEEL, um gestor de manutenção de uma distribuidora — só enxerga indicadores históricos, medidos depois do problema já ter acontecido.
 
 ## A solução
 
@@ -45,6 +45,8 @@ python -m etl.download --anos 2024,2025    # precisa de internet ate dadosaberto
 python -m etl.pipeline --anos 2024,2025    # gera data/processed/municipio_mes.parquet
 pytest                                      # roda a suite de testes (nao depende de rede)
 ```
+
+> Nota sobre o download: além dos Parquet anuais, o pipeline precisa do de-para conjunto→município da ANEEL ("IndQual Município"). O `resource_id` de download automático ainda não foi confirmado em `etl/config.py` — se `etl.download` avisar que não conseguiu baixá-lo, pegue o CSV manualmente em [dadosabertos.aneel.gov.br/dataset/indqual-municipio](https://dadosabertos.aneel.gov.br/dataset/indqual-municipio) e salve em `data/raw/indqual_municipio.csv` antes de rodar `etl.pipeline`. Ver `etl/README.md`.
 
 Os demais serviços (`api`, `web`) serão adicionados aos comandos acima conforme forem implementados — acompanhe o checklist no topo deste README e o [`docs/DEVLOG.md`](docs/DEVLOG.md).
 

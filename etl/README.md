@@ -4,27 +4,34 @@ Ingestão e limpeza dos dados de interrupções de energia da ANEEL.
 
 ## Módulos
 
-- `config.py` — caminhos e constantes (URLs da ANEEL, nomes de colunas).
-- `build_reference.py` — constrói `data/reference/municipios.csv` (código IBGE → UF/região) a partir do repositório público [`kelvins/municipios-brasileiros`](https://github.com/kelvins/municipios-brasileiros). Raramente precisa ser rodado de novo — municípios brasileiros não mudam com frequência.
-- `download.py` — baixa os Parquet anuais da ANEEL para `data/raw/`. Idempotente (compara o tamanho do arquivo antes de rebaixar).
-- `ibge.py` — cruza `CodMunicipioIBGE` com a tabela de referência, com *fallback* de 7 para 6 dígitos (ver docstring de `join_municipio`).
-- `clean.py` — calcula duração de cada interrupção, sinaliza expurgados e registros com data inválida (sem descartar nenhum), e aplica o join de município.
-- `aggregate.py` — agrega o dataset limpo (nível evento) para o grão **município × mês**, com indicadores próprios (`fec_aprox`, `dec_aprox_horas`) e contagem de causas por origem.
-- `pipeline.py` — orquestra tudo: lê os Parquet baixados, limpa, agrega, e escreve `data/processed/municipio_mes.{parquet,csv}`.
+- `config.py` — caminhos e constantes (URLs da ANEEL, nomes de colunas do schema real).
+- `build_reference.py` — constrói `data/reference/municipios.csv` (código IBGE → UF/região) a partir do repositório público [`kelvins/municipios-brasileiros`](https://github.com/kelvins/municipios-brasileiros). Usado hoje só como lookup auxiliar de **região** — ver `ibge.py`.
+- `download.py` — baixa os Parquet anuais da ANEEL para `data/raw/`, e o bridge conjunto→município (`data/raw/indqual_municipio.csv`). Idempotente (compara o tamanho do arquivo antes de rebaixar).
+- `ibge.py` — cruza `IdeConjuntoUnidadeConsumidora` (o dataset de interrupções não publica município/UF diretamente) com o dataset **"IndQual Município"** da ANEEL, que faz esse de-para. Um mesmo conjunto pode atender mais de um município (40,5% dos casos reais) — o join faz *fan-out* do evento para cada município atendido, com um peso (`peso_evento = 1/n_municipios_no_conjunto`) para não inflar o total nacional. Ver o docstring do módulo para o histórico completo dessa descoberta e a decisão de projeto.
+- `clean.py` — calcula duração de cada interrupção, deriva `ano`/`mes` de `DatInicioInterrupcao`, sinaliza interrupções programadas (sem descartar), normaliza o campo de causa (`DscFatoGeradorInterrupcao`, que vem com formatação inconsistente), e aplica o join de município.
+- `aggregate.py` — agrega o dataset limpo (nível evento, já fanned-out por município) para o grão **município × mês**, com indicadores próprios (`fec_aprox`, `dec_aprox_horas`) e contagem ponderada de causas por origem.
+- `pipeline.py` — orquestra tudo: lê os Parquet baixados, cruza com o bridge, limpa, agrega, e escreve `data/processed/municipio_mes.{parquet,csv}`.
 
-## ⚠️ Sobre rodar isso de verdade
+## ⚠️ Sobre o schema real dos dados
 
-`download.py` precisa de acesso real à internet para `dadosabertos.aneel.gov.br`. Esse acesso **não está disponível** no ambiente onde este pipeline foi escrito (um sandbox de rede restrita) — por isso `clean.py` e `aggregate.py` foram desenvolvidos e testados inteiramente com uma fixture sintética (`tests/fixtures/sample_raw_interrupcoes.csv`, com o schema real de 26 colunas da ANEEL, mas eventos fictícios), enquanto `download.py` ainda precisa ser validado contra o servidor real — o que exige rodá-lo num ambiente com internet sem essa restrição (sua máquina, ou o GitHub Actions).
+O pipeline foi desenhado inicialmente a partir da documentação oficial da ANEEL, que descreve campos como `CodMunicipioIBGE`, `QtdConsumidoresAfetados`/`QtdConsumidoresAtivos` e `AnoCompetencia`/`MesCompetencia`. **Ao processar o Parquet real, nenhum desses campos existe** — o schema publicado de fato é outro (18 colunas: `IdeConjuntoUnidadeConsumidora`, `NumUnidadeConsumidora`, `NumConsumidorConjunto`, `DscTipoInterrupcao`, `IdeMotivoInterrupcao`, `DscFatoGeradorInterrupcao`, etc.). O código em `config.py`/`clean.py`/`ibge.py`/`aggregate.py` já reflete o schema real, confirmado rodando `python -m etl.download` + `python -m etl.pipeline` contra o servidor de verdade. O histórico completo dessa descoberta (e das decisões tomadas por causa dela) está em `docs/DEVLOG.md`.
+
+Limitações que seguem documentadas como decisões de projeto, não bugs:
+- **Fan-out conjunto→município**: quando um conjunto atende mais de um município, o mesmo evento é contado fracionado (`peso_evento`) em cada um — ver `ibge.py` e `docs/REQUISITOS.md`.
+- **"Programada" no lugar de "expurgado"**: não existe `DscMotivoExpurgo` no schema real; `DscTipoInterrupcao` é o filtro análogo disponível, mas não é semanticamente idêntico ao conceito oficial de expurgo da ANEEL.
+- **`IdeMotivoInterrupcao`** é mantido bruto (código numérico sem dicionário de dados publicado) — não decodificado.
 
 Se o download falhar com 404, os IDs de recurso da ANEEL em `config.py` provavelmente rotacionaram — confira o [dataset no portal](https://dadosabertos.aneel.gov.br/dataset/interrupcoes-de-energia-eletrica-nas-redes-de-distribuicao) e atualize `ANEEL_PARQUET_RESOURCE_IDS`.
+
+O bridge conjunto→município (`ANEEL_INDQUAL_MUNICIPIO_*` em `config.py`) ainda não tem o `resource_id` de download automático confirmado — até lá, baixe manualmente em [dadosabertos.aneel.gov.br/dataset/indqual-municipio](https://dadosabertos.aneel.gov.br/dataset/indqual-municipio) e salve em `data/raw/indqual_municipio.csv` (é exatamente onde `python -m etl.pipeline` espera encontrá-lo).
 
 ## Como rodar
 
 ```bash
 pip install -r etl/requirements.txt
 
-python -m etl.download --anos 2024,2025      # baixa os Parquet -> data/raw/
-python -m etl.pipeline --anos 2024,2025      # limpa + agrega -> data/processed/
+python -m etl.download --anos 2024,2025      # baixa os Parquet + o bridge conjunto->municipio -> data/raw/
+python -m etl.pipeline --anos 2024,2025      # cruza + limpa + agrega -> data/processed/
 ```
 
 (o `make download ANOS=2024,2025` e `make ingest ANOS=2024,2025` fazem a mesma coisa)
@@ -37,4 +44,4 @@ python -m etl.pipeline --anos 2024,2025      # limpa + agrega -> data/processed/
 pytest tests/test_clean.py tests/test_aggregate.py -v
 ```
 
-Os testes não dependem de rede — usam a fixture sintética e a tabela real de municípios já commitada. Cobrem especificamente as decisões de projeto documentadas em `docs/REQUISITOS.md`: registros expurgados e com data inválida são mantidos (não descartados); o mesmo município com código IBGE de 6 ou 7 dígitos não vira duas linhas diferentes; municípios sem correspondência no join não somem silenciosamente da agregação (isso já pegou um bug real de `groupby` descartando grupos com chave nula por padrão).
+Os testes não dependem de rede — usam fixtures sintéticas (`tests/fixtures/sample_raw_interrupcoes.csv` e `tests/fixtures/sample_indqual_municipio.csv`, já no schema real) e a tabela real de municípios/região já commitada. Cobrem especificamente as decisões de projeto documentadas em `docs/REQUISITOS.md`: interrupções programadas e com data inválida são mantidas (não descartadas); conjuntos que atendem mais de um município são distribuídos (fan-out) sem inflar o total nacional de eventos; municípios sem correspondência no join não somem silenciosamente da agregação (isso já pegou um bug real de `groupby` descartando grupos com chave nula por padrão).

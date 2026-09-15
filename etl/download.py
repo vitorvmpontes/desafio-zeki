@@ -17,7 +17,7 @@ import sys
 
 import requests
 
-from etl.config import RAW_DIR, aneel_parquet_url
+from etl.config import CONJUNTO_MUNICIPIO_PATH, RAW_DIR, aneel_indqual_municipio_url, aneel_parquet_url
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -60,6 +60,31 @@ def download_ano(ano: int, force: bool = False) -> None:
     logger.info("Salvo em %s (%.1f MiB)", destino, baixado / 2**20)
 
 
+def download_indqual_municipio(force: bool = False) -> None:
+    """Baixa o de-para conjunto->municipio (dataset "IndQual Municipio").
+
+    Diferente dos Parquet anuais de interrupcoes, este arquivo nao varia por
+    ano -- e baixado uma vez e reaproveitado por qualquer ano processado. Se
+    o resource_id ainda nao foi confirmado em etl/config.py, levanta um erro
+    com instrucoes de download manual (o pipeline consegue rodar assim que o
+    arquivo existir em CONJUNTO_MUNICIPIO_PATH, baixado manualmente ou nao).
+    """
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
+    if CONJUNTO_MUNICIPIO_PATH.exists() and not force:
+        logger.info(
+            "%s ja existe -- pulando download (use --force para atualizar)",
+            CONJUNTO_MUNICIPIO_PATH.name,
+        )
+        return
+
+    url = aneel_indqual_municipio_url()
+    logger.info("Baixando bridge conjunto->municipio de %s", url)
+    resp = requests.get(url, timeout=TIMEOUT_SECONDS)
+    resp.raise_for_status()
+    CONJUNTO_MUNICIPIO_PATH.write_bytes(resp.content)
+    logger.info("Salvo em %s", CONJUNTO_MUNICIPIO_PATH)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -73,6 +98,17 @@ def main() -> None:
 
     anos = [int(a) for a in args.anos.split(",")]
     falhas = []
+
+    try:
+        download_indqual_municipio(force=args.force)
+    except Exception as exc:  # noqa: BLE001 -- nao deve travar o download dos Parquet anuais
+        logger.error(
+            "Falha ao baixar/gerar o bridge conjunto->municipio: %s -- veja etl/README.md "
+            "para o download manual",
+            exc,
+        )
+        falhas.append("indqual_municipio")
+
     for ano in anos:
         try:
             download_ano(ano, force=args.force)

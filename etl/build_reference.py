@@ -1,8 +1,10 @@
 """Constroi a tabela de referencia de municipios (data/reference/municipios.csv).
 
-A ANEEL identifica o municipio de cada interrupcao só pelo codigo IBGE
-(`CodMunicipioIBGE`), sem UF nem nome -- por isso o pipeline precisa de uma
-tabela auxiliar para traduzir codigo -> municipio/UF/regiao.
+Municipio/UF de cada interrupcao vem do bridge conjunto->municipio da
+propria ANEEL ("IndQual Municipio", ver `etl/ibge.py`) -- mas esse bridge
+nao publica REGIAO, e essa tabela e usada so para esse lookup auxiliar
+(codigo IBGE -> regiao), com o mesmo fallback de 7->6 digitos ja usado
+historicamente no join.
 
 Por que uma tabela estatica versionada no repositorio, em vez de consultar a
 API do IBGE em tempo real a cada execucao:

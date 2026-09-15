@@ -4,6 +4,7 @@ Uso:
     python -m etl.pipeline --anos 2024,2025
 
 Le todos os `data/raw/interrupcoes-<ano>.parquet` para os anos pedidos,
+cruza com o bridge conjunto->municipio (`data/raw/indqual_municipio.csv`),
 aplica etl.clean e etl.aggregate, e escreve o resultado em
 `data/processed/municipio_mes.parquet` (e uma copia .csv, mais facil de
 inspecionar). Reprocessar com os mesmos anos e seguro -- o arquivo de saida
@@ -17,8 +18,8 @@ import pandas as pd
 
 from etl.aggregate import aggregate_municipio_mes
 from etl.clean import clean_interrupcoes
-from etl.config import COL_MUNICIPIO_IBGE, PROCESSED_DIR, RAW_DIR
-from etl.ibge import load_municipios_reference
+from etl.config import CONJUNTO_MUNICIPIO_PATH, PROCESSED_DIR, RAW_DIR
+from etl.ibge import load_conjunto_municipio_bridge, load_municipios_reference
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -26,6 +27,13 @@ logger = logging.getLogger(__name__)
 
 def run(anos: list[int]) -> pd.DataFrame:
     referencia = load_municipios_reference()
+
+    if not CONJUNTO_MUNICIPIO_PATH.exists():
+        raise FileNotFoundError(
+            f"{CONJUNTO_MUNICIPIO_PATH} nao encontrado -- rode antes: python -m etl.download "
+            f"--anos {','.join(str(a) for a in anos)} (ou baixe manualmente, ver etl/README.md)"
+        )
+    bridge = load_conjunto_municipio_bridge()
 
     partes = []
     for ano in anos:
@@ -40,8 +48,8 @@ def run(anos: list[int]) -> pd.DataFrame:
     df_raw = pd.concat(partes, ignore_index=True)
     logger.info("%d eventos brutos carregados (%d anos)", len(df_raw), len(anos))
 
-    df_limpo = clean_interrupcoes(df_raw, referencia=referencia)
-    df_agregado = aggregate_municipio_mes(df_limpo, codigo_municipio_col=COL_MUNICIPIO_IBGE)
+    df_limpo = clean_interrupcoes(df_raw, referencia=referencia, bridge=bridge)
+    df_agregado = aggregate_municipio_mes(df_limpo)
     logger.info("%d linhas municipio x mes geradas", len(df_agregado))
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
