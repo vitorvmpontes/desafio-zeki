@@ -16,9 +16,13 @@ real"). Este módulo:
      filtro análogo disponível (ver docstring de `clean_interrupcoes`).
   5. Normaliza `DscFatoGeradorInterrupcao` (causa), que vem em texto livre
      com separadores e capitalização/acentuação inconsistentes.
-  6. Cruza o conjunto de unidades consumidoras com o município que ele
-     atende, via `etl.ibge.join_conjunto_municipio` (com fan-out para
-     conjuntos que atendem mais de um município).
+
+O cruzamento com município (`IdeConjuntoUnidadeConsumidora` -> município,
+com fan-out para conjuntos que atendem mais de um) NÃO acontece aqui --
+acontece em `etl.aggregate`, depois de agregar por conjunto x mês. Fazer
+esse cruzamento no nível evento (~19 milhões de linhas) chegou a estourar a
+memória de uma máquina comum ao processar o dataset real (ver
+docs/DEVLOG.md) -- ver `etl.ibge` e `etl.aggregate` para o porquê e como.
 """
 import logging
 import unicodedata
@@ -35,7 +39,6 @@ from etl.config import (
     COL_MOTIVO_ID,
     COL_TIPO_INTERRUPCAO,
 )
-from etl.ibge import join_conjunto_municipio, load_conjunto_municipio_bridge, load_municipios_reference
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +79,7 @@ def normalizar_causa(series: pd.Series) -> pd.DataFrame:
     return pd.DataFrame({"causa_normalizada": canonico, "causa_origem": origem})
 
 
-def clean_interrupcoes(
-    df_raw: pd.DataFrame,
-    referencia: pd.DataFrame | None = None,
-    bridge: pd.DataFrame | None = None,
-) -> pd.DataFrame:
+def clean_interrupcoes(df_raw: pd.DataFrame) -> pd.DataFrame:
     df = df_raw.copy()
 
     df[COL_INICIO] = _parse_datetime(df[COL_INICIO])
@@ -133,9 +132,5 @@ def clean_interrupcoes(
     causa = normalizar_causa(df[COL_FATO_GERADOR])
     df["causa_normalizada"] = causa["causa_normalizada"]
     df["causa_origem"] = causa["causa_origem"]
-
-    referencia = referencia if referencia is not None else load_municipios_reference()
-    bridge = bridge if bridge is not None else load_conjunto_municipio_bridge()
-    df = join_conjunto_municipio(df, bridge, referencia)
 
     return df

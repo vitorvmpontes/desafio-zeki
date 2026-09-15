@@ -54,16 +54,14 @@ def aneel_parquet_url(ano: int) -> str:
 # à parte, no dataset "IndQual Município":
 # https://dadosabertos.aneel.gov.br/dataset/indqual-municipio
 #
-# TODO(vitor): confirmar o resource_id do recurso CSV mais recente desse
-# dataset (o mesmo processo manual usado para ANEEL_PARQUET_RESOURCE_IDS) e
-# preencher abaixo, para que `python -m etl.download` baixe esse arquivo
-# também. Até lá, baixe manualmente em
-# https://dadosabertos.aneel.gov.br/dataset/indqual-municipio e salve em
-# `data/raw/indqual_municipio.csv` -- é exatamente onde o pipeline espera
-# encontrá-lo.
+# IDs de recurso levantados manualmente no portal em setembro/2026 (mesmo
+# processo usado para ANEEL_PARQUET_RESOURCE_IDS) -- se o download falhar
+# com 404, o portal provavelmente rotacionou o resource_id; confira em
+# https://dadosabertos.aneel.gov.br/dataset/indqual-municipio e atualize
+# abaixo.
 ANEEL_INDQUAL_MUNICIPIO_DATASET_URL = "https://dadosabertos.aneel.gov.br/dataset/indqual-municipio"
-ANEEL_INDQUAL_MUNICIPIO_PACKAGE_ID: str | None = None
-ANEEL_INDQUAL_MUNICIPIO_RESOURCE_ID: str | None = None
+ANEEL_INDQUAL_MUNICIPIO_PACKAGE_ID: str | None = "db9c9f60-b3b5-4504-9dfe-2637922d53ce"
+ANEEL_INDQUAL_MUNICIPIO_RESOURCE_ID: str | None = "3f841488-80a8-42f2-a6ca-e0c593b228de"
 
 
 def aneel_indqual_municipio_url() -> str:

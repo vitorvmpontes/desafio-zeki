@@ -46,7 +46,7 @@ python -m etl.pipeline --anos 2024,2025    # gera data/processed/municipio_mes.p
 pytest                                      # roda a suite de testes (nao depende de rede)
 ```
 
-> Nota sobre o download: além dos Parquet anuais, o pipeline precisa do de-para conjunto→município da ANEEL ("IndQual Município"). O `resource_id` de download automático ainda não foi confirmado em `etl/config.py` — se `etl.download` avisar que não conseguiu baixá-lo, pegue o CSV manualmente em [dadosabertos.aneel.gov.br/dataset/indqual-municipio](https://dadosabertos.aneel.gov.br/dataset/indqual-municipio) e salve em `data/raw/indqual_municipio.csv` antes de rodar `etl.pipeline`. Ver `etl/README.md`.
+> Nota sobre o download: além dos Parquet anuais, `etl.download` também baixa o de-para conjunto→município da ANEEL ("IndQual Município", `data/raw/indqual_municipio.csv`), necessário para resolver o município de cada interrupção. Ver `etl/README.md`.
 
 Os demais serviços (`api`, `web`) serão adicionados aos comandos acima conforme forem implementados — acompanhe o checklist no topo deste README e o [`docs/DEVLOG.md`](docs/DEVLOG.md).
 

@@ -48,8 +48,8 @@ def run(anos: list[int]) -> pd.DataFrame:
     df_raw = pd.concat(partes, ignore_index=True)
     logger.info("%d eventos brutos carregados (%d anos)", len(df_raw), len(anos))
 
-    df_limpo = clean_interrupcoes(df_raw, referencia=referencia, bridge=bridge)
-    df_agregado = aggregate_municipio_mes(df_limpo)
+    df_limpo = clean_interrupcoes(df_raw)
+    df_agregado = aggregate_municipio_mes(df_limpo, bridge=bridge, referencia=referencia)
     logger.info("%d linhas municipio x mes geradas", len(df_agregado))
 
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)

@@ -5,16 +5,17 @@ from etl.clean import clean_interrupcoes
 
 
 def _agregado(raw_df, referencia, bridge):
-    limpo = clean_interrupcoes(raw_df, referencia=referencia, bridge=bridge)
-    return aggregate_municipio_mes(limpo)
+    limpo = clean_interrupcoes(raw_df)
+    return aggregate_municipio_mes(limpo, bridge=bridge, referencia=referencia)
 
 
 def test_fanout_nao_infla_o_total_nacional_de_eventos(raw_df, referencia, bridge):
-    """O total de n_eventos_total (ponderado por peso_evento) somado sobre
-    TODOS os grupos deve continuar batendo com o numero de eventos
-    distintos de entrada -- o fan-out para conjuntos compartilhados entre
-    municipios (CJ02) nao pode inflar o total nacional so porque o mesmo
-    evento aparece em mais de uma linha."""
+    """O total de n_eventos_total (ponderado por peso_evento, aplicado no
+    nivel conjunto x mes -- ver etl.aggregate) somado sobre TODOS os grupos
+    deve continuar batendo com o numero de eventos distintos de entrada --
+    o fan-out para conjuntos compartilhados entre municipios (CJ02) nao
+    pode inflar o total nacional so porque o mesmo conjunto aparece em mais
+    de uma linha."""
     agregado = _agregado(raw_df, referencia, bridge)
     assert agregado["n_eventos_total"].sum() == pytest.approx(len(raw_df))
 

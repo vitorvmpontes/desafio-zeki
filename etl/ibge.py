@@ -19,15 +19,25 @@ cidade inteira e partes de cidades vizinhas.
 **Decisão de projeto** (ver docs/REQUISITOS.md): em vez de escolher
 arbitrariamente um "município principal" por conjunto -- o que enviesaria o
 ranking de risco a favor ou contra municípios que dividem conjunto com
-vizinhos, sem nenhuma base nos dados para essa escolha -- cada evento é
-distribuído (fan-out) para TODOS os municípios do seu conjunto, e ganha um
-peso `peso_evento = 1 / n_municipios_no_conjunto`. Isso mantém o total
-nacional de eventos consistente (a soma dos pesos de um evento fanned-out é
-sempre 1) às custas de uma resolução mais grosseira exatamente nos
-conjuntos compartilhados -- uma limitação real do dado publicado pela
-ANEEL, não do pipeline, e por isso é reportada explicitamente
-(`n_municipios_no_conjunto`) em vez de escondida atrás de uma escolha
-arbitrária.
+vizinhos, sem nenhuma base nos dados para essa escolha -- cada conjunto é
+distribuído (fan-out) para TODOS os municípios que atende, e ganha um peso
+`peso_evento = 1 / n_municipios_no_conjunto`. Isso mantém o total nacional
+de eventos consistente (a soma dos pesos de um conjunto fanned-out é sempre
+1) às custas de uma resolução mais grosseira exatamente nos conjuntos
+compartilhados -- uma limitação real do dado publicado pela ANEEL, não do
+pipeline, e por isso é reportada explicitamente (`n_municipios_no_conjunto`)
+em vez de escondida atrás de uma escolha arbitrária.
+
+**Importante -- por que o fan-out acontece no dataset JÁ AGREGADO por
+conjunto x mês, nunca no dataset de eventos brutos**: a primeira versão
+deste pipeline fazia o fan-out linha a linha, no nível evento (~19 milhões
+de linhas). Rodando contra o dataset real, isso estourou a memória de uma
+máquina comum (`numpy._core._exceptions._ArrayMemoryError`, um merge
+muitos-para-muitos gerando mais de 100 milhões de linhas intermediárias --
+ver docs/DEVLOG.md). A correção agrega primeiro por conjunto x mês (no
+máximo algumas centenas de milhares de linhas) e só então faz o fan-out
+sobre esse dataset pequeno -- ver `etl.aggregate` para o pipeline completo
+de dois níveis.
 """
 import logging
 
@@ -38,7 +48,6 @@ from etl.config import (
     COL_BRIDGE_CONJUNTO_ID,
     COL_BRIDGE_NOME_MUNICIPIO,
     COL_BRIDGE_UF,
-    COL_CONJUNTO_ID,
     CONJUNTO_MUNICIPIO_PATH,
     MUNICIPIOS_REFERENCE_PATH,
 )
@@ -122,43 +131,49 @@ def _resolver_regiao(bridge: pd.DataFrame, referencia: pd.DataFrame) -> pd.DataF
     return out
 
 
-def join_conjunto_municipio(df: pd.DataFrame, bridge: pd.DataFrame, referencia: pd.DataFrame) -> pd.DataFrame:
-    """Faz o fan-out de cada evento para todos os municípios do seu conjunto.
+def fanout_municipio(
+    df_agregado: pd.DataFrame,
+    bridge: pd.DataFrame,
+    referencia: pd.DataFrame,
+    id_col: str = "conjunto_id",
+) -> pd.DataFrame:
+    """Faz o fan-out de um dataset JÁ AGREGADO por conjunto (ex.: conjunto x
+    mês) para município -- nunca do dataset de eventos brutos (ver
+    docstring do módulo para o porquê).
 
     Adiciona `codigo_ibge_resolvido` / `nome_municipio` / `uf_sigla` /
     `regiao` / `n_municipios_no_conjunto` / `peso_evento`.
 
-    Eventos cujo conjunto não é encontrado na bridge (sem correspondência)
-    são mantidos -- nunca descartados (ver docs/REQUISITOS.md) -- com
+    Conjuntos que não são encontrados na bridge (sem correspondência) são
+    mantidos -- nunca descartados (ver docs/REQUISITOS.md) -- com
     município/UF/região nulos e `codigo_ibge_resolvido` marcado como
     `CONJUNTO_<id>` (para não conflar conjuntos desconhecidos diferentes no
     mesmo grupo "sem município"), `n_municipios_no_conjunto=1` e
     `peso_evento=1.0`, para não precisar de tratamento especial na
-    agregação.
+    agregação seguinte.
     """
     bridge_resolvido = _resolver_regiao(bridge, referencia)
 
-    df = df.copy()
-    df["conjunto_id"] = df[COL_CONJUNTO_ID].astype(str).str.strip()
-
-    out = df.merge(
+    out = df_agregado.merge(
         bridge_resolvido[
             ["conjunto_id", "codigo_ibge_resolvido", "nome_municipio", "uf_sigla", "regiao", "n_municipios_no_conjunto"]
         ],
-        on="conjunto_id",
+        left_on=id_col,
+        right_on="conjunto_id",
         how="left",
     )
 
     sem_match = out["codigo_ibge_resolvido"].isna()
-    out.loc[sem_match, "codigo_ibge_resolvido"] = "CONJUNTO_" + out.loc[sem_match, "conjunto_id"]
+    out.loc[sem_match, "codigo_ibge_resolvido"] = "CONJUNTO_" + out.loc[sem_match, id_col].astype(str)
     out["n_municipios_no_conjunto"] = out["n_municipios_no_conjunto"].fillna(1)
     out["peso_evento"] = 1.0 / out["n_municipios_no_conjunto"]
 
-    total = len(df)
+    total = len(df_agregado)
     linhas_fanout = len(out) - total
     taxa_sem_match = 100 * sem_match.sum() / len(out) if len(out) else 0.0
     logger.info(
-        "Join conjunto->municipio: %d eventos -> %d linhas apos fan-out (+%d), %.2f%% sem correspondencia na bridge",
+        "Fan-out conjunto->municipio (nivel conjunto x mes): %d linhas -> %d apos fan-out (+%d), "
+        "%.2f%% sem correspondencia na bridge",
         total,
         len(out),
         linhas_fanout,
