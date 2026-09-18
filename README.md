@@ -4,21 +4,6 @@ Plataforma de análise e previsão de risco de interrupção de energia elétric
 
 > Transforma os despejos anuais e brutos da ANEEL em um ranking mensal de risco por município, com a previsão do mês seguinte, o histórico real e as causas que mais pesam — para priorizar fiscalização e manutenção preventiva antes do problema acontecer.
 
-## Status do projeto
-
-Este projeto está em desenvolvimento ativo (prazo de 7 dias corridos). O checklist abaixo é atualizado a cada etapa concluída — veja o histórico detalhado em [`docs/DEVLOG.md`](docs/DEVLOG.md).
-
-- [x] Análise de requisitos e escopo (`docs/REQUISITOS.md`)
-- [x] Esqueleto do repositório, Docker Compose e CI básico
-- [x] Pipeline de ingestão e limpeza dos dados da ANEEL (`etl/`) — validado de ponta a ponta contra os 18,9M de eventos reais (2024+2025), gerando 131.793 linhas município × mês (ver `docs/DEVLOG.md`)
-- [x] Análise exploratória (`ml/notebooks/01-eda.ipynb`) e baseline de previsão de risco (`ml/notebooks/02-baseline.ipynb`), ambos executados contra o dado real — ver `ml/README.md`
-- [x] Modelo real de previsão de risco (GLM Poisson/binomial negativa + gradient boosting, `ml/`) — validados contra o dado real e comparados ao baseline; modelo final salvo em `ml/artifacts/modelo_final.joblib` — ver `ml/README.md`
-- [x] API — indicadores, ranking e explicação (`api/`) — endpoints (FastAPI + Postgres), validados contra dado real e testados (`tests/test_api.py`) — ver `api/README.md`
-- [x] Frontend, em tema escuro (`web/`) — ranking, detalhe do município e três páginas de apoio à decisão para o gestor de manutenção: Priorização (impacto real + ação recomendada), Tendências (piorando/melhorando + calendário sazonal) e Geografia (desempenho geográfico com mapa real de clusters via KML + MTTR por região) — React + Vite + TypeScript, consumindo a API real; validado de ponta a ponta com Playwright contra a API e o Postgres reais — ver `web/README.md`
-- [x] Automação mensal (`.github/workflows/atualizacao-mensal.yml`) — cron mensal + disparo manual, reprocessa os dados, retreina o modelo e publica os artefatos atualizados; ver `docs/ARQUITETURA.md`
-- [x] Chatbot text-to-SQL (`POST /chat`, página `/chat`) — traduz perguntas em português para SQL real (Google Gemini) contra os dados, com defesa em profundidade de 4 camadas (validação estática + role Postgres dedicado somente leitura + transação read-only, ver `api/README.md`); opcional, desabilitado com um erro claro sem `GEMINI_API_KEY`/`DATABASE_URL_READONLY`
-- [ ] Vídeo de demonstração
-
 ## O problema
 
 A ANEEL disponibiliza dados públicos de interrupções de energia, mas em arquivos anuais brutos (Parquet de até ~260 MB por ano, colunas com siglas pouco autoexplicativas, sem duração calculada e sem identificar o município diretamente — só o conjunto de unidades consumidoras) e sem nenhuma API de consulta. Quem precisa entender e priorizar risco de interrupção — um analista de fiscalização da ANEEL, um gestor de manutenção de uma distribuidora — só enxerga indicadores históricos, medidos depois do problema já ter acontecido.
