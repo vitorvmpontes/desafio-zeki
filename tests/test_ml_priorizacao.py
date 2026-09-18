@@ -5,8 +5,10 @@ from ml.priorizacao import (
     calcular_tendencia,
     calendario_sazonal,
     causas_taxonomia_acionavel,
+    classificar_padrao_frequencia_duracao,
     hotspots_geograficos,
     mttr_por_regiao,
+    padrao_frequencia_duracao,
     recomendar_acao,
     tendencia_top,
 )
@@ -43,9 +45,77 @@ def _linha(
 
 
 # --------------------------------------------------------------------------
-# causas_taxonomia_acionavel / recomendar_acao
+# classificar_padrao_frequencia_duracao -- base (sempre disponivel) da nova
+# recomendar_acao (ver ml/priorizacao.py, docstring do modulo, para o porque
+# da mudanca: causa reportada faltava justamente nos municipios de maior
+# impacto, ver docs/DEVLOG.md)
 # --------------------------------------------------------------------------
-def test_taxonomia_classifica_causa_ambiental_com_alta_confianca():
+def test_padrao_critico_ambos_quando_frequencia_e_duracao_sao_extremas():
+    r = classificar_padrao_frequencia_duracao(90, 85)
+    assert r["padrao"] == "critico_ambos"
+    assert r["confianca"] == "alta"
+
+
+def test_padrao_frequencia_dominante_com_confianca_alta():
+    r = classificar_padrao_frequencia_duracao(95, 60)
+    assert r["padrao"] == "frequencia_dominante"
+    assert r["confianca"] == "alta"
+    assert "curta duração" in r["texto"]
+
+
+def test_padrao_frequencia_dominante_com_confianca_media():
+    r = classificar_padrao_frequencia_duracao(80, 55)
+    assert r["padrao"] == "frequencia_dominante"
+    assert r["confianca"] == "media"
+
+
+def test_padrao_duracao_dominante():
+    r = classificar_padrao_frequencia_duracao(60, 95)
+    assert r["padrao"] == "duracao_dominante"
+    assert r["confianca"] == "alta"
+    assert "longa duração" in r["texto"]
+
+
+def test_padrao_atencao_moderada_quando_nenhuma_dimensao_e_extrema():
+    r = classificar_padrao_frequencia_duracao(60, 55)
+    assert r["padrao"] == "atencao_moderada"
+    assert r["confianca"] == "media"
+
+
+def test_padrao_dentro_do_padrao_quando_ambas_dimensoes_sao_medianas():
+    r = classificar_padrao_frequencia_duracao(20, 30)
+    assert r["padrao"] == "dentro_do_padrao"
+    assert r["confianca"] == "baixa"
+
+
+def test_padrao_sem_dado_quando_percentil_e_none():
+    r = classificar_padrao_frequencia_duracao(None, None)
+    assert r["padrao"] == "sem_dado"
+    assert r["confianca"] == "sem_dado"
+
+
+# --------------------------------------------------------------------------
+# padrao_frequencia_duracao -- percentil nacional (agregacao real, nao so a
+# funcao pura de classificacao acima)
+# --------------------------------------------------------------------------
+def test_padrao_frequencia_duracao_calcula_percentil_nacional():
+    resultado = padrao_frequencia_duracao(_painel_hotspots(), ultimos_n_meses=12, minimo_meses=3)
+    assert set(resultado.index) == {"1100015", "3550308", "2611606"}
+    # Baixo (2611606) tem a menor frequencia E a menor duracao por consumidor
+    # das tres -- percentil minimo nas duas dimensoes.
+    assert resultado.loc["2611606", "percentil_frequencia"] < resultado.loc["1100015", "percentil_frequencia"]
+    assert resultado.loc["2611606", "percentil_duracao"] < resultado.loc["1100015", "percentil_duracao"]
+    # Hotspot e SoFrequente tem a MESMA frequencia media (0.1) -- percentil empatado.
+    assert resultado.loc["1100015", "percentil_frequencia"] == resultado.loc["3550308", "percentil_frequencia"]
+    # mas Hotspot tem duracao por consumidor muito maior -- percentil de duracao maior.
+    assert resultado.loc["1100015", "percentil_duracao"] > resultado.loc["3550308", "percentil_duracao"]
+
+
+# --------------------------------------------------------------------------
+# recomendar_acao -- combina o padrao (sempre presente) com a causa
+# reportada (evidencia adicional, so quando existir sinal >0%)
+# --------------------------------------------------------------------------
+def test_recomendar_acao_causa_forte_eleva_confianca_para_alta():
     painel = pd.DataFrame(
         [
             _linha(
@@ -58,13 +128,16 @@ def test_taxonomia_classifica_causa_ambiental_com_alta_confianca():
     assert taxonomia["ambiental"] == round(80 / 90, 4)
     assert taxonomia["generica_sem_detalhe"] == round(10 / 90, 4)
 
-    acao = recomendar_acao(taxonomia)
+    # percentis neutros (dentro do padrao) -- e a causa forte, sozinha, que
+    # precisa elevar a confianca para "alta".
+    acao = recomendar_acao(30, 30, taxonomia)
+    assert acao["padrao_operacional"] == "dentro_do_padrao"
     assert acao["confianca_recomendacao"] == "alta"
     assert acao["causa_dominante"] == "ambiental"
     assert "poda" in acao["acao_recomendada"].lower()
 
 
-def test_recomenda_confianca_media_entre_15_e_40_por_cento():
+def test_recomendar_acao_causa_media_eleva_confianca_baixa_para_media():
     painel = pd.DataFrame(
         [
             _linha(
@@ -77,26 +150,48 @@ def test_recomenda_confianca_media_entre_15_e_40_por_cento():
         ]
     )
     taxonomia = causas_taxonomia_acionavel(painel)
-    acao = recomendar_acao(taxonomia)
+    acao = recomendar_acao(30, 30, taxonomia)
     assert acao["confianca_recomendacao"] == "media"
     assert acao["causa_dominante"] == "equipamento"
     assert acao["percentual_causa_dominante"] == 20.0
 
 
-def test_recomenda_confianca_baixa_quando_tudo_e_generico():
+def test_recomendar_acao_sem_causa_usa_so_o_padrao_frequencia_duracao():
     painel = pd.DataFrame(
         [_linha("1100015", "Municipio A", "RO", "Norte", 2025, 1, 100, 100, 1000, 0.10, causa_interna=100)]
     )
     taxonomia = causas_taxonomia_acionavel(painel)
-    acao = recomendar_acao(taxonomia)
+    acao = recomendar_acao(30, 30, taxonomia)
+    assert acao["padrao_operacional"] == "dentro_do_padrao"
     assert acao["confianca_recomendacao"] == "baixa"
     assert acao["causa_dominante"] is None
-    assert "genérica" in acao["acao_recomendada"] or "generica" in acao["acao_recomendada"].lower()
+    assert "mediana" in acao["acao_recomendada"]
 
 
-def test_recomendar_acao_sem_eventos_validos():
-    acao = recomendar_acao({})
+def test_recomenda_acao_especifica_mesmo_sem_causa_detalhada_quando_padrao_e_extremo():
+    # Replica o caso real que motivou a mudanca (ver docs/DEVLOG.md): um
+    # municipio de alto impacto com causa 100% generica (nenhuma coluna
+    # granular preenchida) ainda assim recebe uma acao ESPECIFICA quando o
+    # padrao de frequencia/duracao e claro -- nao mais o texto generico
+    # repetido de antes.
+    painel = pd.DataFrame(
+        [
+            _linha("3550308", "Sao Paulo", "SP", "Sudeste", 2025, m, 100, 100, 1000, 0.05, causa_interna=100)
+            for m in range(1, 13)
+        ]
+    )
+    taxonomia = causas_taxonomia_acionavel(painel)
+    acao = recomendar_acao(95, 40, taxonomia)
+    assert acao["padrao_operacional"] == "frequencia_dominante"
+    assert acao["confianca_recomendacao"] == "alta"
+    assert acao["causa_dominante"] is None
+    assert "generica" not in acao["acao_recomendada"].lower()
+
+
+def test_recomendar_acao_sem_percentil_disponivel():
+    acao = recomendar_acao(None, None, {})
     assert acao["confianca_recomendacao"] == "sem_dado"
+    assert acao["padrao_operacional"] == "sem_dado"
     assert acao["causa_dominante"] is None
 
 

@@ -4,6 +4,7 @@ import { MunicipioDetalhe } from "./pages/MunicipioDetalhe";
 import { Priorizacao } from "./pages/Priorizacao";
 import { Tendencias } from "./pages/Tendencias";
 import { Geografia } from "./pages/Geografia";
+import { Chat } from "./pages/Chat";
 
 function App() {
   return (
@@ -29,6 +30,9 @@ function App() {
           <NavLink to="/geografia" className={({ isActive }) => (isActive ? "ativo" : undefined)}>
             Geografia
           </NavLink>
+          <NavLink to="/chat" className={({ isActive }) => (isActive ? "ativo" : undefined)}>
+            Chat
+          </NavLink>
         </nav>
       </header>
 
@@ -38,6 +42,7 @@ function App() {
         <Route path="/priorizacao" element={<Priorizacao />} />
         <Route path="/tendencias" element={<Tendencias />} />
         <Route path="/geografia" element={<Geografia />} />
+        <Route path="/chat" element={<Chat />} />
       </Routes>
 
       <footer className="rodape">

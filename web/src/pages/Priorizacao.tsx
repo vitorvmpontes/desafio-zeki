@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, buscarPriorizacao, type ConfiancaRecomendacao, type PriorizacaoResponse } from "../lib/api";
+import { ApiError, buscarPriorizacao, type ConfiancaRecomendacao, type PadraoOperacional, type PriorizacaoResponse } from "../lib/api";
 import { formatarFec } from "../lib/risco";
 
 const ROTULO_CONFIANCA: Record<ConfiancaRecomendacao, string> = {
@@ -8,6 +8,28 @@ const ROTULO_CONFIANCA: Record<ConfiancaRecomendacao, string> = {
   media: "Média confiança",
   baixa: "Baixa confiança",
   sem_dado: "Sem dado",
+};
+
+// Rótulo curto + classe de severidade (reaproveita as mesmas 4 cores de
+// risco já usadas em BadgeRisco -- ver web/src/index.css, .badge-*) para o
+// padrão frequência x duração que agora sustenta a ação recomendada (ver
+// docs/DEVLOG.md, "ação recomendada baseada em causa não ajudava").
+const ROTULO_PADRAO: Record<PadraoOperacional, string> = {
+  critico_ambos: "Crítico (frequência + duração)",
+  frequencia_dominante: "Muitos eventos curtos",
+  duracao_dominante: "Poucos eventos longos",
+  atencao_moderada: "Atenção moderada",
+  dentro_do_padrao: "Dentro do padrão",
+  sem_dado: "Sem dado",
+};
+
+const CLASSE_PADRAO: Record<PadraoOperacional, string> = {
+  critico_ambos: "badge-alto",
+  frequencia_dominante: "badge-medio-alto",
+  duracao_dominante: "badge-medio-alto",
+  atencao_moderada: "badge-medio",
+  dentro_do_padrao: "badge-baixo",
+  sem_dado: "badge-confianca-sem_dado",
 };
 
 function formatarNumero(valor: number, casas = 0): string {
@@ -62,7 +84,8 @@ export function Priorizacao() {
         </div>
         <p style={{ color: "var(--cor-texto-suave)", fontSize: 14, marginTop: 0, marginBottom: 16 }}>
           Ordenado por <strong>impacto esperado</strong> (previsão × consumidores atendidos), não só pela taxa de
-          risco -- ver <Link to="/">o ranking por taxa</Link> para a outra métrica.
+          risco -- ver <Link to="/">o ranking por taxa</Link> para a outra métrica. Previsão em interrupções por 100
+          consumidores.
         </p>
         {carregando && <div className="estado-carregando">Atualizando...</div>}
         <table>
@@ -71,7 +94,7 @@ export function Priorizacao() {
               <th>#</th>
               <th>Município</th>
               <th>UF</th>
-              <th>Previsão (modelo)</th>
+              <th>Previsão (por 100 consumidores)</th>
               <th>Consumidores</th>
               <th>Impacto esperado</th>
               <th>Ação recomendada</th>
@@ -88,10 +111,15 @@ export function Priorizacao() {
                 <td>{formatarFec(item.previsao_modelo)}</td>
                 <td>{formatarInteiro(item.consumidores_ativos_estimados)}</td>
                 <td>{formatarNumero(item.impacto_esperado, 1)}</td>
-                <td style={{ minWidth: 280, fontSize: 13 }}>
-                  <span className={`badge badge-confianca-${item.confianca_recomendacao}`} style={{ marginBottom: 6, display: "inline-block" }}>
-                    {ROTULO_CONFIANCA[item.confianca_recomendacao]}
-                  </span>
+                <td style={{ minWidth: 300, fontSize: 13 }}>
+                  <div style={{ marginBottom: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <span className={`badge ${CLASSE_PADRAO[item.padrao_operacional]}`}>
+                      {ROTULO_PADRAO[item.padrao_operacional]}
+                    </span>
+                    <span className={`badge badge-confianca-${item.confianca_recomendacao}`}>
+                      {ROTULO_CONFIANCA[item.confianca_recomendacao]}
+                    </span>
+                  </div>
                   <div style={{ color: "var(--cor-texto-suave)" }}>{item.acao_recomendada}</div>
                 </td>
               </tr>

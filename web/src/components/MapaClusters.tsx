@@ -2,6 +2,7 @@ import "leaflet/dist/leaflet.css";
 import { CircleMarker, MapContainer, Popup, TileLayer } from "react-leaflet";
 import type { MapaResponse } from "../lib/api";
 import { urlKmlMapa } from "../lib/api";
+import { formatarFec } from "../lib/risco";
 
 // Mesma paleta de 4 niveis ja usada no resto do app para risco/confianca
 // (ver web/src/index.css, --cor-risco-*) -- reaproveitada aqui para nao
@@ -76,7 +77,7 @@ export function MapaClusters({ dados }: { dados: MapaResponse }) {
               <br />
               Cluster: <strong>{ROTULO_SEVERIDADE[m.severidade] ?? m.severidade}</strong>
               <br />
-              fec_aprox médio: {formatarNumero(m.fec_aprox_medio, 4)}
+              Frequência média: {formatarFec(m.fec_aprox_medio)} por 100 consumidores
               <br />
               dec_aprox_horas médio: {formatarNumero(m.dec_aprox_horas_medio, 2)}h
             </Popup>

@@ -35,10 +35,15 @@ jobs:
           python-version: "3.11"
 
       - name: Instalar dependências Python
-        run: pip install -r etl/requirements.txt -r ml/requirements.txt -r api/requirements.txt -r requirements-dev.txt
+        # `python -m pip`, nao `pip` sem prefixo -- mesmo motivo do
+        # `python -m pytest` abaixo e do alvo `test` do Makefile (ver
+        # docs/DEVLOG.md, bug real pego no CI: mais de um `pytest` no PATH
+        # do runner, o sem-prefixo podia resolver pro executavel errado e
+        # nao ver os pacotes que este passo acabou de instalar).
+        run: python -m pip install -r etl/requirements.txt -r ml/requirements.txt -r api/requirements.txt -r requirements-dev.txt
 
       - name: Testes (antes de gastar tempo baixando/reprocessando dado real)
-        run: pytest -v
+        run: python -m pytest -v
 
       - name: Preparar .env e subir Postgres
         run: |

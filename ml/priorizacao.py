@@ -16,15 +16,25 @@ módulo cobre as quatro entregas confirmadas com o usuário:
    consumidores pesa muito mais que um com 500, e o ranking anterior
    (`/ranking`, por `previsao_modelo` isolado) não captura essa diferença --
    ver `docs/REQUISITOS.md` para a decisão registrada.
-2. **Recomendação de ação por município** (`recomendar_acao`) -- usa uma
-   taxonomia de causa mais granular que a existente em `api/servico.py`
-   (`_causas_dominantes`, que só separa genérica/ambiental/resto) para poder
-   sugerir uma ação concreta (poda, inspeção de equipamento, fiscalização
-   contra terceiros, revisão operacional) quando o dado sustenta isso, e ser
-   honesto quando não sustenta -- ~95% dos eventos reais só têm causa
-   genérica (EDA do Dia 3), então a maioria das recomendações vai
-   legitimamente cair em confiança baixa/média, e o texto retornado reflete
-   isso em vez de fingir uma certeza que o dado não tem.
+2. **Recomendação de ação por município** (`recomendar_acao`) -- baseada,
+   PRIMARIAMENTE, no padrão de frequência (`fec_aprox`) x duração
+   (`dec_aprox_horas`/MTTR) do município comparado ao percentil nacional dos
+   últimos 12 meses (`padrao_frequencia_duracao`) -- não mais na causa
+   reportada pela distribuidora. Motivo da mudança (ver `docs/DEVLOG.md`,
+   "ação recomendada baseada em causa não ajudava"): a taxonomia de causa
+   mais granular (`causas_taxonomia_acionavel`, mantida abaixo como sinal
+   SECUNDÁRIO) só tem detalhe suficiente em ~10% dos municípios -- e,
+   verificado com dado real, justamente NENHUM dos municípios do topo do
+   ranking por impacto (as maiores cidades do país) está nesses 10%, o que
+   fazia a ação recomendada repetir o mesmo texto genérico linha após linha
+   exatamente onde ela mais precisava ser útil. `fec_aprox`/`dec_aprox_horas`,
+   ao contrário da causa, existem para 100% dos municípios, então o padrão
+   frequência x duração sempre tem algo concreto a dizer: distingue "muitos
+   eventos curtos" (aponta pra vulnerabilidade física da rede -- proteção,
+   vegetação) de "poucos eventos longos" (aponta pra gargalo logístico de
+   reparo) de "crítico nas duas" de "dentro do padrão nacional". A causa
+   detalhada, quando existe, continua aparecendo como evidência adicional na
+   recomendação -- não foi descartada, só deixou de ser a única base.
 3. **Calendário sazonal de preparação** (`calendario_sazonal`) -- reaproveita
    `sazonalidade_nacional` (`ml/analises.py`), a única peça da página antiga
    que sobrevive, reenquadrada como "quando antecipar a preparação" em vez de
@@ -128,74 +138,162 @@ def causas_taxonomia_acionavel(painel_municipio: pd.DataFrame, ultimos_n_meses: 
     return resultado
 
 
-def recomendar_acao(taxonomia: dict[str, float], limiar_alta: float = 0.40, limiar_media: float = 0.15) -> dict:
-    """Recomendação de ação a partir da taxonomia acionável de um município.
+# Limiares do padrao frequencia x duracao -- percentis (0-100) contra TODOS
+# os municipios do pais, mesma janela de 12 meses. 75 = quarto superior
+# nacional (mesmo corte conceitual de "top 25%" usado em outros lugares do
+# produto, ver risco.ts::classificarRisco); 20 pontos de diferenca entre as
+# duas dimensoes e o que separa um municipio genuinamente "dominado" por uma
+# das duas (frequencia OU duracao) de um municipio ruim nas duas ao mesmo
+# tempo.
+LIMIAR_PERCENTIL_CRITICO = 75.0
+LIMIAR_PERCENTIL_MODERADO = 50.0
+LIMIAR_GAP_DOMINANTE = 20.0
 
-    Regra: pega o balde acionável (exclui "generica_sem_detalhe") com maior
-    percentual; se ele passa do limiar de alta confiança, recomenda a ação
-    específica com confiança alta; se passa do limiar de média, com
-    confiança média; senão, é honesto sobre a limitação do dado (causa
-    majoritariamente genérica) em vez de inventar uma ação específica sem
-    evidência -- e ainda assim aponta o melhor sinal secundário disponível,
-    para não descartar a informação que existe."""
-    if not taxonomia:
+# Limiares da causa reportada, mantidos do desenho original (ver
+# `causas_taxonomia_acionavel`) -- agora usados so para decidir se a causa
+# entra na PROSA da recomendacao como evidencia adicional, nao mais como a
+# unica base da recomendacao (ver docstring do modulo).
+LIMIAR_CAUSA_ALTA = 0.40
+LIMIAR_CAUSA_MEDIA = 0.15
+
+
+def classificar_padrao_frequencia_duracao(percentil_frequencia: float | None, percentil_duracao: float | None) -> dict:
+    """Classifica um município num de 5 padrões a partir de onde ele cai no
+    percentil NACIONAL de frequência (`fec_aprox`) e duração
+    (`dec_aprox_horas`) dos últimos 12 meses (ver `padrao_frequencia_duracao`
+    para o cálculo dos percentis) -- a base da nova `recomendar_acao` (ver
+    docstring do módulo para o porquê da mudança).
+
+    Ao contrário da causa reportada, `fec_aprox`/`dec_aprox_horas` existem
+    para 100% dos municípios -- por isso essa classificação nunca cai em
+    "sem dado" a não ser que o município tenha histórico curto demais
+    (`minimo_meses` de `padrao_frequencia_duracao`) para entrar na janela."""
+    if percentil_frequencia is None or percentil_duracao is None or pd.isna(percentil_frequencia) or pd.isna(percentil_duracao):
         return {
-            "acao_recomendada": (
-                "Sem eventos válidos suficientes nos últimos meses para identificar um padrão de causa "
-                "neste município."
+            "padrao": "sem_dado",
+            "confianca": "sem_dado",
+            "texto": (
+                "Sem meses suficientes no histórico recente para calcular o padrão de frequência/duração "
+                "deste município."
             ),
+            "percentil_frequencia": None,
+            "percentil_duracao": None,
+        }
+
+    gap = percentil_frequencia - percentil_duracao
+
+    if percentil_frequencia >= LIMIAR_PERCENTIL_CRITICO and percentil_duracao >= LIMIAR_PERCENTIL_CRITICO:
+        padrao = "critico_ambos"
+        confianca = "alta"
+        texto = (
+            f"Frequência E duração entre as piores do país nos últimos 12 meses (percentil "
+            f"{percentil_frequencia:.0f} e {percentil_duracao:.0f}) -- caso crítico nas duas dimensões: "
+            f"priorizar como urgência, com reforço de proteção da rede e revisão da logística de "
+            f"resposta/reparo ao mesmo tempo."
+        )
+    elif percentil_frequencia >= LIMIAR_PERCENTIL_CRITICO and gap >= LIMIAR_GAP_DOMINANTE:
+        padrao = "frequencia_dominante"
+        confianca = "alta" if percentil_frequencia >= 90 else "media"
+        texto = (
+            f"Muitos eventos de curta duração: frequência entre as piores do país (percentil "
+            f"{percentil_frequencia:.0f}), duração dentro da média (percentil {percentil_duracao:.0f}) -- "
+            f"indício de vulnerabilidade física da rede (proteção, vegetação, sobrecarga), não de gargalo "
+            f"logístico; priorizar inspeção preventiva e reforço de proteção mesmo sem causa detalhada "
+            f"reportada pela distribuidora."
+        )
+    elif percentil_duracao >= LIMIAR_PERCENTIL_CRITICO and -gap >= LIMIAR_GAP_DOMINANTE:
+        padrao = "duracao_dominante"
+        confianca = "alta" if percentil_duracao >= 90 else "media"
+        texto = (
+            f"Poucos eventos, mas de longa duração: duração entre as piores do país (percentil "
+            f"{percentil_duracao:.0f}), frequência dentro da média (percentil {percentil_frequencia:.0f}) -- "
+            f"indício de gargalo no restabelecimento (deslocamento de equipe, disponibilidade de peças), "
+            f"não de causa recorrente; priorizar revisão do tempo de resposta e reforço de equipes de campo."
+        )
+    elif percentil_frequencia >= LIMIAR_PERCENTIL_MODERADO or percentil_duracao >= LIMIAR_PERCENTIL_MODERADO:
+        padrao = "atencao_moderada"
+        confianca = "media"
+        texto = (
+            f"Frequência e/ou duração acima da mediana nacional nos últimos 12 meses (percentil "
+            f"{percentil_frequencia:.0f} / {percentil_duracao:.0f}), sem um padrão extremo -- acompanhar de "
+            f"perto e reavaliar junto com a tendência dos últimos meses (ver piorando/melhorando)."
+        )
+    else:
+        padrao = "dentro_do_padrao"
+        confianca = "baixa"
+        texto = (
+            f"Frequência e duração dentro da faixa mediana do país nos últimos 12 meses (percentil "
+            f"{percentil_frequencia:.0f} / {percentil_duracao:.0f}) -- o impacto esperado alto vem "
+            f"principalmente do volume de consumidores atendidos, não de um padrão local ruim; risco aqui é "
+            f"mais de escala do que de qualidade de serviço."
+        )
+
+    return {
+        "padrao": padrao,
+        "confianca": confianca,
+        "texto": texto,
+        "percentil_frequencia": round(float(percentil_frequencia), 1),
+        "percentil_duracao": round(float(percentil_duracao), 1),
+    }
+
+
+def recomendar_acao(
+    percentil_frequencia: float | None, percentil_duracao: float | None, taxonomia: dict[str, float] | None = None
+) -> dict:
+    """Recomendação de ação para um município -- combina o padrão
+    frequência x duração (base, sempre disponível, ver
+    `classificar_padrao_frequencia_duracao`) com a causa reportada pela
+    distribuidora, quando existir, como evidência ADICIONAL (não mais a
+    única base -- ver docstring do módulo).
+
+    `causa_dominante`/`percentual_causa_dominante` continuam preenchidos
+    sempre que existe algum evento com causa acionável (>0%), mesmo abaixo
+    do limiar de menção na prosa -- quem quiser conferir o sinal fraco
+    ainda tem acesso ao número; só não polui a frase quando é fraco demais
+    pra sustentar uma ação."""
+    base = classificar_padrao_frequencia_duracao(percentil_frequencia, percentil_duracao)
+    if base["padrao"] == "sem_dado":
+        return {
+            "acao_recomendada": base["texto"],
             "confianca_recomendacao": "sem_dado",
+            "padrao_operacional": "sem_dado",
+            "percentil_frequencia": None,
+            "percentil_duracao": None,
             "causa_dominante": None,
             "percentual_causa_dominante": None,
         }
 
-    acionaveis = {k: v for k, v in taxonomia.items() if k != "generica_sem_detalhe"}
-    causa_dominante = max(acionaveis, key=acionaveis.get) if acionaveis else None
-    percentual = acionaveis.get(causa_dominante, 0.0) if causa_dominante else 0.0
-    if causa_dominante and percentual <= 0:
-        # nenhum balde acionavel teve nenhum evento -- nao ha "dominante" de verdade
-        causa_dominante = None
+    texto = base["texto"]
+    confianca = base["confianca"]
+    causa_dominante = None
+    percentual_causa = None
 
-    if causa_dominante and percentual >= limiar_alta:
-        return {
-            "acao_recomendada": ACOES_POR_CAUSA[causa_dominante],
-            "confianca_recomendacao": "alta",
-            "causa_dominante": causa_dominante,
-            "percentual_causa_dominante": round(percentual * 100, 1),
-        }
-    if causa_dominante and percentual >= limiar_media:
-        return {
-            "acao_recomendada": ACOES_POR_CAUSA[causa_dominante],
-            "confianca_recomendacao": "media",
-            "causa_dominante": causa_dominante,
-            "percentual_causa_dominante": round(percentual * 100, 1),
-        }
+    acionaveis = {k: v for k, v in (taxonomia or {}).items() if k != "generica_sem_detalhe"}
+    candidato = max(acionaveis, key=acionaveis.get) if acionaveis else None
+    percentual = acionaveis.get(candidato, 0.0) if candidato else 0.0
+    if candidato and percentual > 0:
+        causa_dominante = candidato
+        percentual_causa = round(percentual * 100, 1)
+        if percentual >= LIMIAR_CAUSA_ALTA:
+            confianca = "alta"
+            texto += (
+                f" Causa dominante reportada pela distribuidora: '{candidato}' ({percentual_causa:.0f}% dos "
+                f"eventos) -- {ACOES_POR_CAUSA[candidato]}"
+            )
+        elif percentual >= LIMIAR_CAUSA_MEDIA:
+            confianca = confianca if confianca == "alta" else "media"
+            texto += f" Sinal adicional de causa reportada: '{candidato}' ({percentual_causa:.0f}% dos eventos)."
+        # abaixo do limiar de media: campo fica preenchido para quem conferir,
+        # mas o sinal e fraco demais pra entrar na prosa da recomendacao.
 
-    # Mensagem curta de proposito: essa e a branch "baixa confianca", que
-    # cobre ~95% dos municipios (ver nota_metodologica) -- ou seja, e o texto
-    # que se repete em quase toda linha da tabela de priorizacao. A versao
-    # longa original (3 oracoes) virava uma parede de texto identica linha
-    # apos linha; encurtada para 1 oracao mantendo so o que muda por
-    # municipio (percentual, sinal secundario) (ver docs/DEVLOG.md,
-    # "reorganizacao em paginas + tema escuro", pedido do usuario para
-    # reduzir o tanto de texto).
-    percentual_generica = taxonomia.get("generica_sem_detalhe", 0.0) * 100
-    if causa_dominante and percentual > 0:
-        mensagem = (
-            f"Causa majoritariamente genérica ({percentual_generica:.0f}% dos eventos) -- sem evidência para "
-            f"ação específica; cobrar da distribuidora o registro detalhado. Sinal secundário: "
-            f"'{causa_dominante}' ({percentual * 100:.0f}%)."
-        )
-    else:
-        mensagem = (
-            f"Causa majoritariamente genérica ({percentual_generica:.0f}% dos eventos) -- sem evidência para "
-            f"ação específica; cobrar da distribuidora o registro detalhado da causa neste município."
-        )
     return {
-        "acao_recomendada": mensagem,
-        "confianca_recomendacao": "baixa",
+        "acao_recomendada": texto,
+        "confianca_recomendacao": confianca,
+        "padrao_operacional": base["padrao"],
+        "percentil_frequencia": base["percentil_frequencia"],
+        "percentil_duracao": base["percentil_duracao"],
         "causa_dominante": causa_dominante,
-        "percentual_causa_dominante": round(percentual * 100, 1) if causa_dominante else None,
+        "percentual_causa_dominante": percentual_causa,
     }
 
 
@@ -316,6 +414,52 @@ def _janela_ultimos_meses(painel: pd.DataFrame, ultimos_n_meses: int) -> pd.Data
     return df[df["periodo"] > ultimo_periodo - ultimos_n_meses]
 
 
+def _agregado_frequencia_duracao(painel: pd.DataFrame, ultimos_n_meses: int, minimo_meses: int) -> pd.DataFrame:
+    """Agregação compartilhada por `hotspots_geograficos` E
+    `padrao_frequencia_duracao`: frequência (`fec_aprox`) e duração
+    (`dec_aprox_horas`) médias por município na janela, MAIS o percentil
+    NACIONAL de cada uma (0-100, `rank(pct=True)`) -- calculado sobre TODOS
+    os municípios da janela de uma vez, nunca por município isolado (um
+    percentil só faz sentido contra a distribuição inteira). Retorna a
+    tabela completa, sem truncar -- quem trunca por `top_n` é
+    `hotspots_geograficos`; `padrao_frequencia_duracao` usa a tabela inteira,
+    porque a ação recomendada precisa do percentil de qualquer município do
+    ranking por impacto, não só dos piores 15."""
+    janela = _janela_ultimos_meses(painel, ultimos_n_meses)
+    agregado = janela.groupby(COL_ID).agg(
+        nome_municipio=("nome_municipio", "last"),
+        uf_sigla=("uf_sigla", "last"),
+        regiao=("regiao", "last"),
+        fec_aprox_medio=(TARGET, "mean"),
+        dec_aprox_horas_medio=("dec_aprox_horas", "mean"),
+        n_eventos_validos=("n_eventos_validos", "sum"),
+        duracao_total_horas=("duracao_total_horas", "sum"),
+        n_meses=(TARGET, "count"),
+    )
+    agregado = agregado[agregado["n_meses"] >= minimo_meses]
+    agregado["mttr_horas"] = agregado["duracao_total_horas"] / agregado["n_eventos_validos"].replace(0, np.nan)
+    agregado["percentil_frequencia"] = agregado["fec_aprox_medio"].rank(pct=True) * 100
+    agregado["percentil_duracao"] = agregado["dec_aprox_horas_medio"].rank(pct=True) * 100
+    agregado["indice_hotspot"] = (agregado["percentil_frequencia"] + agregado["percentil_duracao"]) / 2
+    return agregado
+
+
+def padrao_frequencia_duracao(painel: pd.DataFrame, ultimos_n_meses: int = 12, minimo_meses: int = 3) -> pd.DataFrame:
+    """Tabela completa (todos os municípios, não só os piores) de percentil
+    nacional de frequência e duração dos últimos `ultimos_n_meses` -- a base
+    de dado da nova `recomendar_acao` (ver docstring do módulo). Pré-computada
+    UMA VEZ em `montar_estado`, igual a `desempenho_geografico` (não depende
+    do `limite` da requisição de `/priorizacao`).
+
+    Indexada por `codigo_ibge_resolvido`, só com as colunas que
+    `recomendar_acao` precisa -- município fora desta tabela (histórico
+    curto demais, `minimo_meses`) não tem padrão calculável, e
+    `classificar_padrao_frequencia_duracao` trata isso como "sem_dado", não
+    como um erro."""
+    agregado = _agregado_frequencia_duracao(painel, ultimos_n_meses, minimo_meses)
+    return agregado[["percentil_frequencia", "percentil_duracao"]]
+
+
 def hotspots_geograficos(
     painel: pd.DataFrame, ultimos_n_meses: int = 12, top_n: int = 15, minimo_meses: int = 3
 ) -> list[dict]:
@@ -342,23 +486,7 @@ def hotspots_geograficos(
 
     Granularidade é município, não subestação/alimentador -- o dado público
     da ANEEL usado aqui não identifica esse nível (ver docstring do módulo)."""
-    janela = _janela_ultimos_meses(painel, ultimos_n_meses)
-    agregado = janela.groupby(COL_ID).agg(
-        nome_municipio=("nome_municipio", "last"),
-        uf_sigla=("uf_sigla", "last"),
-        regiao=("regiao", "last"),
-        fec_aprox_medio=(TARGET, "mean"),
-        dec_aprox_horas_medio=("dec_aprox_horas", "mean"),
-        n_eventos_validos=("n_eventos_validos", "sum"),
-        duracao_total_horas=("duracao_total_horas", "sum"),
-        n_meses=(TARGET, "count"),
-    )
-    agregado = agregado[agregado["n_meses"] >= minimo_meses]
-    agregado["mttr_horas"] = agregado["duracao_total_horas"] / agregado["n_eventos_validos"].replace(0, np.nan)
-    agregado["percentil_frequencia"] = agregado["fec_aprox_medio"].rank(pct=True) * 100
-    agregado["percentil_duracao"] = agregado["dec_aprox_horas_medio"].rank(pct=True) * 100
-    agregado["indice_hotspot"] = (agregado["percentil_frequencia"] + agregado["percentil_duracao"]) / 2
-
+    agregado = _agregado_frequencia_duracao(painel, ultimos_n_meses, minimo_meses)
     top = agregado.sort_values("indice_hotspot", ascending=False).head(top_n).reset_index()
     return [
         {
@@ -424,19 +552,32 @@ def desempenho_geografico(painel: pd.DataFrame, ultimos_n_meses: int = 12, top_n
     }
 
 
-def ranking_por_impacto(previsao_com_impacto: pd.DataFrame, painel: pd.DataFrame, limite: int) -> list[dict]:
+def ranking_por_impacto(
+    previsao_com_impacto: pd.DataFrame, painel: pd.DataFrame, padrao_operacional: pd.DataFrame, limite: int
+) -> list[dict]:
     """Top N municípios por impacto esperado, com ação recomendada calculada
-    SÓ para esse subconjunto -- computar a taxonomia de causa para os ~5500
-    municípios a cada requisição seria desperdício; o gestor só precisa da
-    recomendação para quem está no topo da lista que ele vai realmente
-    olhar."""
+    SÓ para esse subconjunto -- computar a taxonomia de causa (sinal
+    adicional, ver `recomendar_acao`) para os ~5500 municípios a cada
+    requisição seria desperdício; o gestor só precisa da recomendação para
+    quem está no topo da lista que ele vai realmente olhar.
+
+    `padrao_operacional` é a tabela de percentil frequência x duração de
+    TODOS os municípios (`padrao_frequencia_duracao`, pré-computada uma vez
+    em `montar_estado`) -- só o lookup por município acontece aqui, o
+    cálculo de percentil nacional não é refeito a cada requisição."""
     df = previsao_com_impacto.sort_values("impacto_esperado", ascending=False).head(limite).reset_index(drop=True)
 
     itens = []
     for i, row in enumerate(df.to_dict(orient="records")):
         painel_municipio = painel[painel[COL_ID] == row[COL_ID]]
         taxonomia = causas_taxonomia_acionavel(painel_municipio)
-        acao = recomendar_acao(taxonomia)
+        if row[COL_ID] in padrao_operacional.index:
+            percentil_frequencia = padrao_operacional.loc[row[COL_ID], "percentil_frequencia"]
+            percentil_duracao = padrao_operacional.loc[row[COL_ID], "percentil_duracao"]
+        else:
+            percentil_frequencia = None
+            percentil_duracao = None
+        acao = recomendar_acao(percentil_frequencia, percentil_duracao, taxonomia)
         itens.append(
             {
                 "posicao": i + 1,
@@ -449,6 +590,9 @@ def ranking_por_impacto(previsao_com_impacto: pd.DataFrame, painel: pd.DataFrame
                 "impacto_esperado": round(float(row["impacto_esperado"]), 2),
                 "acao_recomendada": acao["acao_recomendada"],
                 "confianca_recomendacao": acao["confianca_recomendacao"],
+                "padrao_operacional": acao["padrao_operacional"],
+                "percentil_frequencia": acao["percentil_frequencia"],
+                "percentil_duracao": acao["percentil_duracao"],
                 "causa_dominante": acao["causa_dominante"],
                 "percentual_causa_dominante": acao["percentual_causa_dominante"],
             }

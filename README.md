@@ -16,6 +16,7 @@ Este projeto está em desenvolvimento ativo (prazo de 7 dias corridos). O checkl
 - [x] API — indicadores, ranking e explicação (`api/`) — endpoints (FastAPI + Postgres), validados contra dado real e testados (`tests/test_api.py`) — ver `api/README.md`
 - [x] Frontend, em tema escuro (`web/`) — ranking, detalhe do município e três páginas de apoio à decisão para o gestor de manutenção: Priorização (impacto real + ação recomendada), Tendências (piorando/melhorando + calendário sazonal) e Geografia (desempenho geográfico com mapa real de clusters via KML + MTTR por região) — React + Vite + TypeScript, consumindo a API real; validado de ponta a ponta com Playwright contra a API e o Postgres reais — ver `web/README.md`
 - [x] Automação mensal (`.github/workflows/atualizacao-mensal.yml`) — cron mensal + disparo manual, reprocessa os dados, retreina o modelo e publica os artefatos atualizados; ver `docs/ARQUITETURA.md`
+- [x] Chatbot text-to-SQL (`POST /chat`, página `/chat`) — traduz perguntas em português para SQL real (Google Gemini) contra os dados, com defesa em profundidade de 4 camadas (validação estática + role Postgres dedicado somente leitura + transação read-only, ver `api/README.md`); opcional, desabilitado com um erro claro sem `GEMINI_API_KEY`/`DATABASE_URL_READONLY`
 - [ ] Vídeo de demonstração
 
 ## O problema
@@ -67,6 +68,12 @@ pytest tests/test_api.py -v    # testes de integracao dos endpoints (nao depende
 
 # Frontend (Dia 6): sobe o painel consumindo a API acima
 docker compose up -d --build web   # builda e sobe o frontend -- http://localhost:3000
+
+# Chatbot text-to-SQL (Dia 8, opcional -- ver api/README.md): sem isso, o
+# resto do projeto funciona normalmente e /chat responde 503.
+psql -h localhost -U continua -d continua -f db/readonly_role.sql   # cria o role somente-leitura continua_readonly (uma vez)
+# defina DATABASE_URL_READONLY e GEMINI_API_KEY no .env (ver .env.example --
+# chave gratuita em https://aistudio.google.com/apikey), depois reinicie a API
 ```
 
 > Nota sobre o download: além dos Parquet anuais, `etl.download` também baixa o de-para conjunto→município da ANEEL ("IndQual Município", `data/raw/indqual_municipio.csv`), necessário para resolver o município de cada interrupção. Ver `etl/README.md`.
@@ -89,8 +96,9 @@ desafio-zeki/
 ├── docs/            análise de requisitos, arquitetura e log de desenvolvimento
 ├── etl/             ingestão, limpeza e agregação dos dados da ANEEL
 ├── ml/              exploração de dados e treino do modelo de risco
-├── api/             backend (FastAPI) — indicadores, ranking e previsão
-├── web/             frontend (tema escuro) — ranking, detalhe do município, priorização, tendências e geografia
+├── api/             backend (FastAPI) — indicadores, ranking, previsão e o chatbot text-to-SQL (chat_sql.py)
+├── db/              readonly_role.sql -- role Postgres somente-leitura usado pelo chatbot
+├── web/             frontend (tema escuro) — ranking, detalhe do município, priorização, tendências, geografia e chat
 ├── tests/           testes automatizados (fixtures sintéticas, sem dependência de rede)
 ├── Makefile         atalhos para os passos do pipeline, inclusive a atualização mensal completa
 └── data/            dados (raw/processed ignorados pelo git; reference e sample versionadas)

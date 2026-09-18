@@ -91,6 +91,7 @@ export function Ranking() {
             {dados.modo === "previsto"
               ? `Previsão do modelo para ${String(dados.mes).padStart(2, "0")}/${dados.ano} · ${dados.total_municipios.toLocaleString("pt-BR")} municípios cobertos`
               : `Risco observado em ${String(dados.mes).padStart(2, "0")}/${dados.ano} · ${dados.total_municipios.toLocaleString("pt-BR")} municípios`}
+            {" · valores em interrupções por 100 consumidores"}
           </p>
         )}
 
@@ -106,8 +107,8 @@ export function Ranking() {
                 <th>Município</th>
                 <th>UF</th>
                 <th>Região</th>
-                <th>{modo === "previsto" ? "Previsão (modelo)" : "fec_aprox observado"}</th>
-                {modo === "previsto" && <th>Baseline (referência)</th>}
+                <th>{modo === "previsto" ? "Previsão (por 100 consumidores)" : "Frequência observada (por 100 consumidores)"}</th>
+                {modo === "previsto" && <th>Baseline (por 100 consumidores)</th>}
               </tr>
             </thead>
             <tbody>

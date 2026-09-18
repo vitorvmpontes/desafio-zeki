@@ -43,10 +43,14 @@ const NOMES_FEATURE: Record<string, string> = {
   uf_sigla: "UF",
 };
 
+// O grafico usa a mesma escala x100 ("por 100 consumidores") do restante do
+// site (ver web/src/lib/risco.ts, formatarFec) -- aplicada aqui direto nos
+// pontos (nao so na formatacao) para o eixo Y tambem ficar no valor
+// intuitivo, nao so o tooltip.
 function montarPontosGrafico(historico: HistoricoResponse, previsao: PrevisaoResponse): PontoGrafico[] {
   const pontos: PontoGrafico[] = historico.historico.map((p) => ({
     rotulo: `${p.ano}-${String(p.mes).padStart(2, "0")}`,
-    real: p.fec_aprox ?? undefined,
+    real: p.fec_aprox !== null && p.fec_aprox !== undefined ? p.fec_aprox * 100 : undefined,
   }));
 
   if (pontos.length > 0) {
@@ -59,11 +63,17 @@ function montarPontosGrafico(historico: HistoricoResponse, previsao: PrevisaoRes
 
   pontos.push({
     rotulo: previsao.mes_alvo,
-    previsto: previsao.previsao_modelo,
-    baseline: previsao.previsao_baseline ?? undefined,
+    previsto: previsao.previsao_modelo * 100,
+    baseline: previsao.previsao_baseline !== null && previsao.previsao_baseline !== undefined
+      ? previsao.previsao_baseline * 100
+      : undefined,
   });
 
   return pontos;
+}
+
+function formatarValorGrafico(valor: number): string {
+  return valor.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function MunicipioDetalhe() {
@@ -107,6 +117,9 @@ export function MunicipioDetalhe() {
 
       <div className="cartao">
         <h3 style={{ marginTop: 0 }}>Histórico real vs. previsão ({previsao.mes_alvo})</h3>
+        <p style={{ color: "var(--cor-texto-suave)", fontSize: 14, marginTop: 0, marginBottom: 16 }}>
+          Valores em interrupções por 100 consumidores atendidos.
+        </p>
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={pontosGrafico} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--cor-grade-grafico)" />
@@ -116,14 +129,14 @@ export function MunicipioDetalhe() {
               contentStyle={{ background: "var(--cor-superficie-alta)", border: "1px solid var(--cor-borda)", borderRadius: 8 }}
               labelStyle={{ color: "var(--cor-texto)" }}
               itemStyle={{ color: "var(--cor-texto)" }}
-              formatter={(valor) => formatarFec(typeof valor === "number" ? valor : undefined)}
+              formatter={(valor) => (typeof valor === "number" ? formatarValorGrafico(valor) : valor)}
             />
             <Legend wrapperStyle={{ color: "var(--cor-texto-suave)", fontSize: 13 }} />
-            <Line type="monotone" dataKey="real" name="Real (fec_aprox)" stroke="var(--cor-primaria)" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="real" name="Real (por 100 consumidores)" stroke="var(--cor-primaria)" strokeWidth={2} dot={false} />
             <Line
               type="monotone"
               dataKey="previsto"
-              name="Previsão (modelo)"
+              name="Previsão (por 100 consumidores)"
               stroke="var(--cor-risco-alto)"
               strokeWidth={2}
               strokeDasharray="6 4"
@@ -132,7 +145,7 @@ export function MunicipioDetalhe() {
             <Line
               type="monotone"
               dataKey="baseline"
-              name="Baseline (referência)"
+              name="Baseline (por 100 consumidores)"
               stroke="var(--cor-texto-suave)"
               strokeWidth={1.5}
               strokeDasharray="2 3"

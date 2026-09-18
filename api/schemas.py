@@ -1,6 +1,8 @@
 """Modelos de resposta (Pydantic) da API."""
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -93,9 +95,28 @@ class ItemPriorizacao(BaseModel):
     impacto_esperado: float = Field(
         ..., description="previsao_modelo x consumidores_ativos_estimados -- proxy de interrupcoes-consumidor esperadas no mes seguinte, nao so a taxa por consumidor"
     )
-    acao_recomendada: str = Field(..., description="acao concreta sugerida a partir do mix de causas recentes, ou uma mensagem honesta quando a causa e majoritariamente generica")
-    confianca_recomendacao: str = Field(..., description="'alta' (>=40% de uma causa acionavel), 'media' (>=15%), 'baixa' (causa majoritariamente generica) ou 'sem_dado'")
-    causa_dominante: str | None = Field(None, description="'ambiental' | 'equipamento' | 'terceiros' | 'operacional', se houver uma dominante com algum sinal")
+    acao_recomendada: str = Field(
+        ...,
+        description=(
+            "acao concreta a partir do padrao de frequencia (fec_aprox) x duracao (dec_aprox_horas) do "
+            "municipio comparado ao percentil nacional dos ultimos 12 meses -- disponivel para 100% dos "
+            "municipios; a causa reportada pela distribuidora, quando existir, aparece como evidencia adicional "
+            "no texto"
+        ),
+    )
+    confianca_recomendacao: str = Field(
+        ..., description="'alta' | 'media' | 'baixa', conforme a clareza do padrao frequencia/duracao (reforcada por causa reportada, se houver), ou 'sem_dado'"
+    )
+    padrao_operacional: str = Field(
+        ...,
+        description=(
+            "'critico_ambos' | 'frequencia_dominante' | 'duracao_dominante' | 'atencao_moderada' | "
+            "'dentro_do_padrao' | 'sem_dado'"
+        ),
+    )
+    percentil_frequencia: float | None = Field(None, description="percentil nacional (0-100) de fec_aprox medio do municipio nos ultimos 12 meses")
+    percentil_duracao: float | None = Field(None, description="percentil nacional (0-100) de dec_aprox_horas medio do municipio nos ultimos 12 meses")
+    causa_dominante: str | None = Field(None, description="'ambiental' | 'equipamento' | 'terceiros' | 'operacional', se houver uma dominante com algum sinal (evidencia adicional, nao mais a base da recomendacao)")
     percentual_causa_dominante: float | None = None
 
 
@@ -176,6 +197,26 @@ class MapaResponse(BaseModel):
     resumo_por_cluster: list[MapaClusterResumo]
     kml_url: str = Field(..., description="endpoint que serve o arquivo KML real (application/vnd.google-earth.kml+xml)")
     nota_metodologica: str
+
+
+class ChatRequest(BaseModel):
+    pergunta: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="pergunta em portugues sobre os dados de municipio_mes (ex.: 'quais os 5 municipios com maior fec_aprox em 2025?')",
+    )
+
+
+class ChatResponse(BaseModel):
+    pergunta: str
+    sql_gerado: str = Field(
+        ..., description="consulta SQL gerada pelo modelo e validada (LIMIT garantido) -- a mesma que foi de fato executada"
+    )
+    colunas: list[str]
+    linhas: list[dict[str, Any]]
+    total_linhas: int
+    aviso: str | None = Field(None, description="ex.: aviso de truncamento pelo limite maximo de linhas de seguranca")
 
 
 class PriorizacaoResponse(BaseModel):

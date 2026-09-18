@@ -22,6 +22,14 @@ services:
       # certo para rodar etl.load_db do HOST): dentro da rede do compose o
       # Postgres e alcancado pelo nome do servico, "db", nao "localhost".
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # idem para o chat (POST /chat, opcional -- ver api/README.md e
+      # db/readonly_role.sql): mesmo problema de "localhost" vs "db", agora
+      # pro role SOMENTE LEITURA em vez do usuario de escrita. Sem efeito
+      # pratico enquanto GEMINI_API_KEY nao estiver definida (chat continua
+      # desabilitado, 503) -- so importa depois que voce rodar
+      # db/readonly_role.sql e configurar as duas variaveis no .env. Se voce
+      # mudou usuario/senha do role no script, ajuste aqui tambem.
+      DATABASE_URL_READONLY: postgresql://continua_readonly:continua_readonly@db:5432/${POSTGRES_DB}
     ports:
       - "8000:8000"
     depends_on:

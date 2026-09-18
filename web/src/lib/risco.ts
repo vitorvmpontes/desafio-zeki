@@ -22,5 +22,13 @@ export const ROTULO_RISCO: Record<NivelRisco, string> = {
 
 export function formatarFec(valor: number | null | undefined): string {
   if (valor === null || valor === undefined) return "—";
-  return valor.toFixed(4);
+  // fec_aprox bruto é uma taxa por consumidor (ex.: 0,0731) -- correto, mas
+  // pouco intuitivo à primeira vista para quem não conhece a métrica.
+  // Exibido multiplicado por 100 ("7,31 por 100 consumidores"): mesma
+  // precisão, escala que dá pra comparar de cabeça (ver docs/DEVLOG.md,
+  // pedido do usuário para deixar o número do ranking mais intuitivo). O
+  // valor por trás continua o fec_aprox de sempre -- só a apresentação
+  // mudou, a API e a nota_metodologica de cada tela seguem descrevendo a
+  // métrica original.
+  return (valor * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

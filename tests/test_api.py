@@ -15,9 +15,21 @@ local) foi feita manualmente -- ver docs/DEVLOG.md, Dia 5.
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
 
-from api import servico
+from api import chat_sql, servico
 from api.main import criar_app
+
+_URL_READONLY_TESTE = "postgresql://continua_readonly:continua_readonly@localhost:5432/continua"
+
+
+def _postgres_readonly_acessivel() -> bool:
+    try:
+        with create_engine(_URL_READONLY_TESTE).connect() as conexao:
+            conexao.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
 
 
 def _linha(municipio, ano, mes, fec, nome=None, uf="RO", regiao="Norte", consumidores=1000, duracao_total_horas=6.0):
@@ -171,13 +183,22 @@ def test_priorizacao_ranking_por_impacto(client):
     assert item["impacto_esperado"] == pytest.approx(item["previsao_modelo"] * item["consumidores_ativos_estimados"], rel=1e-3)
 
     # so ~8% dos eventos sinteticos sao ambientais (1 de 12) -- abaixo do
-    # limiar de media confianca, entao a recomendacao tem que ser honesta
-    # (confianca "baixa"), mas ainda aponta esse sinal secundario fraco em
-    # vez de descarta-lo.
+    # limiar de media confianca (15%), entao esse sinal continua exposto no
+    # campo (causa_dominante/percentual), mas nao e' ele quem decide a
+    # confianca -- quem decide agora e' o padrao frequencia x duracao (ver
+    # ml/priorizacao.py::recomendar_acao), que sempre tem algo a dizer
+    # porque fec_aprox/dec_aprox_horas existem pros 2 municipios.
+    por_municipio = {item["codigo_ibge"]: item for item in corpo["ranking_impacto"]}
     for item in corpo["ranking_impacto"]:
-        assert item["confianca_recomendacao"] == "baixa"
+        assert item["confianca_recomendacao"] == "alta"
         assert item["causa_dominante"] == "ambiental"
         assert item["percentual_causa_dominante"] == pytest.approx(1 / 12 * 100, rel=1e-2)
+
+    # Sao Paulo: fec_aprox 2x maior que Alta Floresta -- domina em frequencia,
+    # nao em duracao (dec_aprox_horas e' MENOR, por ter 50x mais consumidores
+    # no denominador). Alta Floresta e' o oposto: domina em duracao.
+    assert por_municipio["3550308"]["padrao_operacional"] == "frequencia_dominante"
+    assert por_municipio["1100015"]["padrao_operacional"] == "duracao_dominante"
 
 
 def test_priorizacao_traz_tendencia_e_calendario(client):
@@ -237,3 +258,66 @@ def test_mapa_kml_serve_arquivo_kml_valido(client):
     assert r.headers["content-type"].startswith("application/vnd.google-earth.kml+xml")
     assert r.text.startswith('<?xml version="1.0" encoding="UTF-8"?>')
     assert r.text.count("<Placemark>") == 2
+
+
+# --------------------------------------------------------------------------
+# /chat -- chatbot text-to-SQL (api/chat_sql.py). `gerar_sql` (a chamada de
+# rede ao Gemini) e' sempre mockada aqui: o que este endpoint precisa
+# garantir e' o roteamento HTTP certo (503/422/200) a partir do que
+# `chat_sql`/`servico.responder_chat` decidem, nao o texto que o Gemini
+# devolveria de verdade -- isso fica para a primeira execucao real na
+# maquina do usuario (ver docs/DEVLOG.md).
+# --------------------------------------------------------------------------
+
+
+def test_chat_sem_engine_leitura_configurada_da_503(client):
+    """O fixture `client` (topo do arquivo) monta o app sem `engine_leitura`
+    -- mesmo estado de uma instalacao sem DATABASE_URL_READONLY no .env."""
+    r = client.post("/chat", json={"pergunta": "quantos municipios existem?"})
+    assert r.status_code == 503
+    assert "DATABASE_URL_READONLY" in r.json()["detail"]
+
+
+@pytest.fixture(scope="module")
+def client_com_chat():
+    if not _postgres_readonly_acessivel():
+        pytest.skip(
+            "Postgres local com o role 'continua_readonly' indisponivel (rode "
+            "db/readonly_role.sql, ver docs/DEVLOG.md) -- testes de /chat com "
+            "banco real pulados, sem acoplar o CI a infraestrutura externa."
+        )
+    estado = servico.montar_estado(_painel_sintetico())
+    engine_leitura = create_engine(_URL_READONLY_TESTE)
+    app = criar_app(estado_inicial=estado, engine_leitura=engine_leitura)
+    with TestClient(app) as c:
+        yield c
+
+
+def test_chat_com_sql_valido_executa_e_retorna_dados_reais(client_com_chat, monkeypatch):
+    sql_fake = "SELECT codigo_ibge_resolvido, nome_municipio FROM municipio_mes WHERE codigo_ibge_resolvido = '1100015' LIMIT 3"
+    monkeypatch.setattr(chat_sql, "gerar_sql", lambda pergunta: sql_fake)
+
+    r = client_com_chat.post("/chat", json={"pergunta": "me mostre o municipio 1100015"})
+    assert r.status_code == 200
+    corpo = r.json()
+    assert corpo["pergunta"] == "me mostre o municipio 1100015"
+    assert corpo["colunas"] == ["codigo_ibge_resolvido", "nome_municipio"]
+    assert corpo["total_linhas"] == len(corpo["linhas"])
+    assert 0 < corpo["total_linhas"] <= 3
+    assert all(linha["codigo_ibge_resolvido"] == "1100015" for linha in corpo["linhas"])
+    assert corpo["aviso"] is None
+
+
+def test_chat_com_sql_invalido_gerado_pelo_modelo_da_422(client_com_chat, monkeypatch):
+    """O modelo "alucinou" uma consulta perigosa -- confirma que o endpoint
+    devolve 422 (pedido nao pode ser atendido com seguranca), nao um 500
+    generico nem, pior, executa a consulta."""
+    monkeypatch.setattr(chat_sql, "gerar_sql", lambda pergunta: "DROP TABLE municipio_mes")
+
+    r = client_com_chat.post("/chat", json={"pergunta": "apague a tabela"})
+    assert r.status_code == 422
+
+
+def test_chat_pergunta_vazia_e_rejeitada_pelo_schema(client):
+    r = client.post("/chat", json={"pergunta": ""})
+    assert r.status_code == 422  # validacao do Pydantic (min_length=1), nem chega em servico.responder_chat

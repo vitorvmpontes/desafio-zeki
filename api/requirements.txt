@@ -4,6 +4,10 @@ sqlalchemy==2.0.54
 psycopg2-binary==2.9.13
 python-dotenv==1.2.2
 
+# chatbot text-to-SQL (api/chat_sql.py, opcional -- ver .env.example)
+sqlparse==0.6.0
+google-genai==2.24.0
+
 # usados para carregar e rodar o modelo final (ml/artifacts/modelo_final.joblib)
 pandas==3.0.2
 numpy==2.4.4

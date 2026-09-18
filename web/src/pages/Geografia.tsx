@@ -68,7 +68,7 @@ export function Geografia() {
             <tr>
               <th>Município</th>
               <th>UF</th>
-              <th>Frequência média (fec_aprox)</th>
+              <th>Frequência média (por 100 consumidores)</th>
               <th>Duração média (dec_aprox_horas)</th>
               <th>MTTR (h/evento)</th>
               <th>Índice hotspot</th>

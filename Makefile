@@ -26,7 +26,7 @@ help:
 	@echo "  make api-up            - sobe db + api via docker compose (http://localhost:8000/docs)"
 
 setup:
-	pip install -r etl/requirements.txt -r ml/requirements.txt -r api/requirements.txt -r requirements-dev.txt
+	python -m pip install -r etl/requirements.txt -r ml/requirements.txt -r api/requirements.txt -r requirements-dev.txt
 
 db-up:
 	docker compose up -d db
@@ -35,10 +35,15 @@ db-down:
 	docker compose down
 
 lint:
-	ruff check .
+	python -m ruff check .
 
 test:
-	pytest
+	# `python -m pytest`, nunca `pytest` sem prefixo -- bug real pego no CI
+	# do GitHub Actions: mais de um `pytest` no PATH do runner, o sem-prefixo
+	# resolvia pro executavel errado (sem os pacotes deste projeto
+	# instalados), dando ModuleNotFoundError mesmo com `pip install` tendo
+	# funcionado certo (ver docs/DEVLOG.md).
+	python -m pytest
 
 reference:
 	python -m etl.build_reference

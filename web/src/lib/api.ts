@@ -72,6 +72,18 @@ export interface RankingResponse {
 
 export type ConfiancaRecomendacao = "alta" | "media" | "baixa" | "sem_dado";
 
+// Padrão operacional (frequência x duração, ver ml/priorizacao.py) -- base
+// da ação recomendada desde a mudança pedida pelo usuário: a causa reportada
+// pela distribuidora não tem detalhe suficiente justamente nos municípios de
+// maior impacto, então deixou de ser a única base (ver docs/DEVLOG.md).
+export type PadraoOperacional =
+  | "critico_ambos"
+  | "frequencia_dominante"
+  | "duracao_dominante"
+  | "atencao_moderada"
+  | "dentro_do_padrao"
+  | "sem_dado";
+
 export interface ItemPriorizacao {
   posicao: number;
   codigo_ibge: string;
@@ -83,6 +95,9 @@ export interface ItemPriorizacao {
   impacto_esperado: number;
   acao_recomendada: string;
   confianca_recomendacao: ConfiancaRecomendacao;
+  padrao_operacional: PadraoOperacional;
+  percentil_frequencia: number | null;
+  percentil_duracao: number | null;
   causa_dominante: string | null;
   percentual_causa_dominante: number | null;
 }
@@ -175,6 +190,20 @@ export interface MapaResponse {
   nota_metodologica: string;
 }
 
+// Valor de uma célula do resultado do chat -- o que sobra depois que
+// api/chat_sql.py::_valor_serializavel converte tipos do Postgres (ex.:
+// Decimal) pro que o JSON aceita.
+export type ValorCelulaChat = string | number | boolean | null;
+
+export interface ChatResponse {
+  pergunta: string;
+  sql_gerado: string;
+  colunas: string[];
+  linhas: Record<string, ValorCelulaChat>[];
+  total_linhas: number;
+  aviso: string | null;
+}
+
 class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -188,6 +217,19 @@ async function pedir<T>(caminho: string): Promise<T> {
   if (!resposta.ok) {
     const corpo = await resposta.json().catch(() => ({}));
     throw new ApiError(resposta.status, corpo.detail ?? `Erro ${resposta.status} ao chamar ${caminho}`);
+  }
+  return resposta.json() as Promise<T>;
+}
+
+async function pedirPost<T>(caminho: string, corpo: unknown): Promise<T> {
+  const resposta = await fetch(`${API_URL}${caminho}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo),
+  });
+  if (!resposta.ok) {
+    const corpoResposta = await resposta.json().catch(() => ({}));
+    throw new ApiError(resposta.status, corpoResposta.detail ?? `Erro ${resposta.status} ao chamar ${caminho}`);
   }
   return resposta.json() as Promise<T>;
 }
@@ -224,6 +266,15 @@ export function buscarMapa(): Promise<MapaResponse> {
 
 export function urlKmlMapa(): string {
   return `${API_URL}/mapa/kml`;
+}
+
+// Chatbot text-to-SQL (api/chat_sql.py) -- traduz `pergunta` (português)
+// para SQL via Gemini, valida e executa contra o role Postgres somente
+// leitura. Ver docs/DEVLOG.md, "Dia 8", para o porquê de POST em vez de GET
+// (a pergunta vai no corpo, não numa query string) e a arquitetura de
+// defesa em profundidade por trás do endpoint.
+export function perguntarChat(pergunta: string): Promise<ChatResponse> {
+  return pedirPost("/chat", { pergunta });
 }
 
 export { ApiError };

@@ -390,3 +390,119 @@ tbody tr:hover {
     padding: 20px 16px;
   }
 }
+
+/* Chat (text-to-SQL, api/chat_sql.py) -- histórico em formato de conversa,
+   pergunta do usuário alinhada à direita, resposta (tabela/erro) à esquerda,
+   igual ao padrão visual de qualquer chat. */
+.chat-janela {
+  min-height: 220px;
+}
+
+.chat-exemplos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-historico {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.chat-troca {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-bolha {
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 100%;
+}
+
+.chat-bolha-usuario {
+  align-self: flex-end;
+  background: var(--cor-primaria-fraca);
+  border: 1px solid rgba(91, 157, 255, 0.35);
+  color: var(--cor-texto);
+  max-width: 80%;
+}
+
+.chat-bolha-resposta {
+  align-self: flex-start;
+  background: var(--cor-superficie-alta);
+  border: 1px solid var(--cor-borda);
+  width: 100%;
+}
+
+.chat-bolha-resposta table {
+  font-size: 13px;
+}
+
+.chat-tabela-scroll {
+  overflow-x: auto;
+}
+
+.chat-sql-gerado {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--cor-texto-suave);
+}
+.chat-sql-gerado summary {
+  cursor: pointer;
+  user-select: none;
+}
+.chat-sql-gerado pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: var(--cor-fundo);
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 12px;
+  color: var(--cor-texto);
+}
+
+.chat-form {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+
+textarea {
+  flex: 1;
+  resize: vertical;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--cor-superficie-alta);
+  color: var(--cor-texto);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+textarea:focus {
+  border-color: var(--cor-primaria);
+  box-shadow: 0 0 0 3px var(--cor-primaria-fraca);
+}
+textarea::placeholder {
+  color: var(--cor-texto-suave);
+}
+
+code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.92em;
+  background: var(--cor-superficie-alta);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.chat-sql-gerado pre code {
+  background: none;
+  padding: 0;
+}

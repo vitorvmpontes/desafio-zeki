@@ -16,7 +16,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from api import config
+from api import chat_sql, config
 from ml.baseline import prever_baseline
 from ml.features import FEATURES_CATEGORICAS, FEATURES_NUMERICAS, TARGET, construir_dataset
 from ml.mapa import mapa_clusters_kml
@@ -25,6 +25,7 @@ from ml.priorizacao import (
     adicionar_impacto_esperado,
     calendario_sazonal,
     desempenho_geografico,
+    padrao_frequencia_duracao,
     ranking_por_impacto,
     tendencia_top,
 )
@@ -57,6 +58,7 @@ class EstadoAplicacao:
     tendencia: dict  # top N piorando/melhorando pre-computado (ml/priorizacao.py) -- nao depende do "limite" da requisicao
     calendario_sazonal: dict  # calendario sazonal pre-computado (ml/priorizacao.py) -- idem
     desempenho_geografico: dict  # hotspots por municipio + MTTR por regiao pre-computado (ml/priorizacao.py) -- idem
+    padrao_operacional: pd.DataFrame  # percentil nacional de frequencia/duracao por municipio, pre-computado (ml/priorizacao.py::padrao_frequencia_duracao) -- base da acao recomendada de /priorizacao
     mapa_geografico: dict  # clusters de qualidade de servico + KML pre-computado (ml/mapa.py) -- idem
 
 
@@ -94,6 +96,7 @@ def montar_estado(painel: pd.DataFrame) -> EstadoAplicacao:
     tendencia = tendencia_top(painel, municipios)
     calendario = calendario_sazonal(painel)
     geografico = desempenho_geografico(painel)
+    padrao_operacional = padrao_frequencia_duracao(painel)
     mapa = mapa_clusters_kml(painel)
 
     return EstadoAplicacao(
@@ -107,6 +110,7 @@ def montar_estado(painel: pd.DataFrame) -> EstadoAplicacao:
         tendencia=tendencia,
         calendario_sazonal=calendario,
         desempenho_geografico=geografico,
+        padrao_operacional=padrao_operacional,
         mapa_geografico=mapa,
     )
 
@@ -301,15 +305,18 @@ def priorizacao(estado: EstadoAplicacao, limite: int) -> dict:
 
     O ranking por impacto e a ação recomendada são calculados a cada
     requisição, limitados ao `limite` pedido (ver `ml/priorizacao.py`,
-    `ranking_por_impacto` -- a ação recomendada exige olhar o mix de causas
-    do município, então só vale a pena calcular para quem entra na lista).
-    Tendência, calendário sazonal e desempenho geográfico não dependem de
-    `limite` e já vêm pré-computados de `montar_estado`."""
+    `ranking_por_impacto`) -- mas o percentil nacional de frequência/duração
+    que sustenta a ação (`estado.padrao_operacional`) e o mix de causas por
+    município (`causas_taxonomia_acionavel`) tem custo pra recalcular, então
+    só vale a pena fazer o lookup/agregação para quem entra na lista, não
+    para os ~5500 municípios. Tendência, calendário sazonal, desempenho
+    geográfico e o próprio `padrao_operacional` não dependem de `limite` e
+    já vêm pré-computados de `montar_estado`."""
     mes_alvo = estado.previsao["periodo_alvo"].iloc[0] if len(estado.previsao) else None
     return {
         "mes_alvo": str(mes_alvo) if mes_alvo is not None else None,
         "total_municipios": len(estado.previsao),
-        "ranking_impacto": ranking_por_impacto(estado.previsao, estado.painel, limite),
+        "ranking_impacto": ranking_por_impacto(estado.previsao, estado.painel, estado.padrao_operacional, limite),
         "tendencia_piorando": estado.tendencia["piorando"],
         "tendencia_melhorando": estado.tendencia["melhorando"],
         "calendario_sazonal": estado.calendario_sazonal,
@@ -322,10 +329,13 @@ def priorizacao(estado: EstadoAplicacao, limite: int) -> dict:
             # ja mostram a versao completa (ver docs/DEVLOG.md, "reorganizacao
             # em paginas + tema escuro", pedido do usuario para reduzir texto).
             "impacto_esperado = previsao_modelo (gradient boosting) x consumidores_ativos_estimados -- prioriza "
-            "por impacto absoluto, nao so pela taxa de risco por consumidor (ver /ranking). acao_recomendada usa "
-            "uma classificacao mais granular do texto de causa (ambiental / equipamento / terceiros / operacional) "
-            "que a maioria dos eventos reais nao preenche com detalhe (~95%, ver docs/DEVLOG.md, Dia 3) -- por "
-            "isso a maior parte dos municipios recebe confianca 'baixa', o retrato honesto do dado disponivel."
+            "por impacto absoluto, nao so pela taxa de risco por consumidor (ver /ranking). acao_recomendada "
+            "compara o percentil nacional de frequencia (fec_aprox) e duracao (dec_aprox_horas) do municipio nos "
+            "ultimos 12 meses -- disponivel para 100% dos municipios, ao contrario da causa reportada pela "
+            "distribuidora (~95% dos eventos so tem causa generica, ver docs/DEVLOG.md, Dia 3): nenhum dos "
+            "municipios do topo do ranking por impacto tinha causa detalhada, entao a recomendacao anterior, "
+            "baseada so em causa, virava o mesmo texto generico repetido nas linhas que mais importam. A causa "
+            "detalhada, quando existe, continua aparecendo na acao como evidencia adicional."
         ),
     }
 
@@ -357,3 +367,46 @@ def mapa_kml(estado: EstadoAplicacao) -> str:
     `mapa_clusters`, servido no formato padrão OGC (`application/vnd.google-
     earth.kml+xml`, ver `api/main.py`)."""
     return estado.mapa_geografico["kml"]
+
+
+# --------------------------------------------------------------------------
+# /chat -- chatbot text-to-SQL (ver api/chat_sql.py para a validação/execução
+# em si; esta função só orquestra: gera o SQL, executa, formata a resposta)
+# --------------------------------------------------------------------------
+def responder_chat(pergunta: str, engine_leitura) -> dict:
+    """Traduz `pergunta` (português) em SQL via Gemini, valida e executa
+    contra `engine_leitura` (role Postgres somente-leitura, ver
+    `api/database.py::criar_engine_leitura`).
+
+    Não depende de `EstadoAplicacao`/`estado.painel` -- o chat lê os mesmos
+    dados, mas direto do Postgres via SQL gerado dinamicamente, não do
+    DataFrame em memória que sustenta o resto da API (ver módulo
+    `api/database.py` para a justificativa de manter dois caminhos de
+    leitura separados: o painel em memória é rápido e fixo por reinicialização,
+    o chat precisa de uma consulta nova por pergunta).
+
+    `engine_leitura=None` (chat não configurado, ver `criar_engine_leitura`)
+    e `chat_sql.SqlInvalidoError` (consulta gerada reprovada na validação)
+    são erros esperados, tratados explicitamente aqui pra api/main.py devolver
+    o HTTP status certo (503 vs. 422) em vez de um 500 genérico."""
+    if engine_leitura is None:
+        raise RuntimeError(
+            "Chat não configurado: defina DATABASE_URL_READONLY no .env (rode db/readonly_role.sql "
+            "uma vez contra o Postgres e veja .env.example para o formato da URL)."
+        )
+
+    sql_gerado = chat_sql.gerar_sql(pergunta)
+    resultado = chat_sql.executar_sql_seguro(sql_gerado, engine_leitura)
+
+    aviso = None
+    if len(resultado.linhas) >= chat_sql.LIMITE_LINHAS_MAXIMO:
+        aviso = f"Resultado truncado em {chat_sql.LIMITE_LINHAS_MAXIMO} linhas (limite máximo de segurança)."
+
+    return {
+        "pergunta": pergunta,
+        "sql_gerado": resultado.sql,
+        "colunas": resultado.colunas,
+        "linhas": resultado.linhas,
+        "total_linhas": len(resultado.linhas),
+        "aviso": aviso,
+    }
