@@ -5,9 +5,20 @@ docs/DEVLOG.md sobre a escolha de nao acoplar os testes automatizados a
 infra externa), os testes montam o `EstadoAplicacao` diretamente a partir
 de um painel sintetico em memoria (`servico.montar_estado`), pulando
 `api/database.py` -- mas usando o modelo REAL (`ml/artifacts/modelo_final.joblib`)
-e a importancia REAL (`ml/artifacts/importancia_features.json`) ja
-commitados no repositorio, entao o caminho de previsao/interpretabilidade e
-exercitado de verdade, so o Postgres que e' trocado.
+e a importancia REAL (`ml/artifacts/importancia_features.json`), entao o
+caminho de previsao/interpretabilidade e exercitado de verdade, so o
+Postgres que e' trocado.
+
+`modelo_final.joblib` e' um artefato GRANDE e gitignored (ver `.gitignore`
+e `docs/ARQUITETURA.md`, "Automacao") -- publicado via GitHub Release, nunca
+commitado -- existe localmente so depois de `make train`. Bug real pego no
+CI (ver docs/DEVLOG.md): o fixture `client` carregava esse arquivo sem
+checar se existia, e um checkout novo (CI ou qualquer maquina que nunca
+rodou `make train`) nao tem esse arquivo -- toda a suite de `/municipios`,
+`/ranking`, `/priorizacao` e `/mapa` quebrava com `FileNotFoundError` em vez
+de pular de forma honesta. `_modelo_treinado_disponivel` cobre isso, no
+mesmo espirito de `_postgres_readonly_acessivel` abaixo: nao acoplar o CI a
+um artefato que ele nunca gera.
 
 A validacao contra um Postgres de verdade (via docker compose / instancia
 local) foi feita manualmente -- ver docs/DEVLOG.md, Dia 5.
@@ -17,7 +28,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
-from api import chat_sql, servico
+from api import chat_sql, config, servico
 from api.main import criar_app
 
 _URL_READONLY_TESTE = "postgresql://continua_readonly:continua_readonly@localhost:5432/continua"
@@ -30,6 +41,10 @@ def _postgres_readonly_acessivel() -> bool:
         return True
     except Exception:
         return False
+
+
+def _modelo_treinado_disponivel() -> bool:
+    return config.MODELO_PATH.exists()
 
 
 def _linha(municipio, ano, mes, fec, nome=None, uf="RO", regiao="Norte", consumidores=1000, duracao_total_horas=6.0):
@@ -67,6 +82,13 @@ def _painel_sintetico() -> pd.DataFrame:
 
 @pytest.fixture(scope="module")
 def client():
+    if not _modelo_treinado_disponivel():
+        pytest.skip(
+            f"Modelo treinado indisponivel ({config.MODELO_PATH}) -- rode `make train` "
+            "localmente (artefato grande, gitignored, publicado via GitHub Release, nunca "
+            "commitado, ver docs/ARQUITETURA.md) para exercitar os testes de API com o "
+            "modelo real; sem ele, pulados no CI em vez de dar FileNotFoundError."
+        )
     estado = servico.montar_estado(_painel_sintetico())
     app = criar_app(estado_inicial=estado)
     with TestClient(app) as c:
@@ -280,6 +302,12 @@ def test_chat_sem_engine_leitura_configurada_da_503(client):
 
 @pytest.fixture(scope="module")
 def client_com_chat():
+    if not _modelo_treinado_disponivel():
+        pytest.skip(
+            f"Modelo treinado indisponivel ({config.MODELO_PATH}) -- rode `make train` "
+            "localmente (ver docs/ARQUITETURA.md) para exercitar os testes de /chat com "
+            "o modelo real."
+        )
     if not _postgres_readonly_acessivel():
         pytest.skip(
             "Postgres local com o role 'continua_readonly' indisponivel (rode "
