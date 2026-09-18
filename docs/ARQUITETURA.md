@@ -23,7 +23,7 @@ flowchart LR
 
 **Web (`web/`)** — frontend mínimo consumindo a API: ranking de municípios por risco e uma tela de detalhe com histórico real vs. previsto e causas dominantes.
 
-**Automação (`.github/workflows/`)** — workflow agendado mensalmente que reexecuta o ETL contra os dados atualizados da ANEEL e republica o ranking, sem depender de infraestrutura paga rodando continuamente durante a avaliação do desafio.
+**Automação (`.github/workflows/atualizacao-mensal.yml`)** — workflow agendado mensalmente (dia 5, com `workflow_dispatch` para disparo manual) que roda `make atualizar-mensal`: baixa o Parquet atualizado da ANEEL, reprocessa o ETL, roda os testes, recarrega o Postgres, retreina o modelo e regenera os artefatos derivados (importância de features, mapa de clusters). Sem servidor pago para "reimplantar" durante a avaliação do desafio, republicar significa: (1) subir a API de verdade contra os artefatos novos e rodar um smoke test (`/health`, `/ranking`, `/priorizacao`, `/mapa`) antes de publicar qualquer coisa; (2) publicar os artefatos grandes/gitignorados (dado processado + modelo treinado) como assets de uma GitHub Release mensal; (3) commitar de volta em `main` só os artefatos pequenos já versionados (importância de features, KML do mapa, metadata do modelo) — um `git pull` a qualquer momento reflete o mês mais recente já processado. Todo o pipeline é idempotente (`etl/download.py` só rebaixa o que mudou; `etl/pipeline.py`/`etl/load_db.py` sempre reescrevem do zero), então rodar o workflow duas vezes no mesmo mês, ou num mês sem publicação nova da ANEEL, é seguro.
 
 ## Decisões de engenharia
 

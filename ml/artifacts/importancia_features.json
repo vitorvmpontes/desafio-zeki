@@ -1,0 +1,92 @@
+{
+  "descricao": "Importancia por permutacao do gradient boosting validado por corte temporal (treino ate 2024, teste em 2025, municipios com historico completo) -- NAO do modelo_final.joblib servido pela API, que e treinado com todo o historico e nao tem held-out. Ver ml/interpretabilidade.py e ml/notebooks/04-modelagem.ipynb.",
+  "metrica": "aumento no MAE ao embaralhar a feature (neg_mean_absolute_error)",
+  "n_repeticoes": 5,
+  "linhas_teste_avaliadas": 59592,
+  "importancias": [
+    {
+      "feature": "lag_1",
+      "aumento_mae_medio": 0.0018988514988034452,
+      "aumento_mae_desvio": 1.0972872231648904e-05,
+      "importancia_relativa": 0.46745278134508494
+    },
+    {
+      "feature": "media_movel_expandida",
+      "aumento_mae_medio": 0.0013331608864473568,
+      "aumento_mae_desvio": 1.7397312811696528e-05,
+      "importancia_relativa": 0.32819299705269045
+    },
+    {
+      "feature": "mes_sin",
+      "aumento_mae_medio": 0.00046071948068315913,
+      "aumento_mae_desvio": 4.461969050164807e-06,
+      "importancia_relativa": 0.11341834935534303
+    },
+    {
+      "feature": "uf_sigla",
+      "aumento_mae_medio": 0.0001878113926459558,
+      "aumento_mae_desvio": 2.0262700586918675e-06,
+      "importancia_relativa": 0.046234767656116504
+    },
+    {
+      "feature": "lag_2",
+      "aumento_mae_medio": 0.00014454410299024993,
+      "aumento_mae_desvio": 4.872925176008274e-06,
+      "importancia_relativa": 0.03558337395652066
+    },
+    {
+      "feature": "media_movel_3",
+      "aumento_mae_medio": 1.8342708902446305e-05,
+      "aumento_mae_desvio": 1.184284157691281e-06,
+      "importancia_relativa": 0.004515545475385976
+    },
+    {
+      "feature": "log_consumidores",
+      "aumento_mae_medio": 7.1196603111175516e-06,
+      "aumento_mae_desvio": 9.717081874814185e-07,
+      "importancia_relativa": 0.001752693676552014
+    },
+    {
+      "feature": "prop_causa_ambiental_lag_1",
+      "aumento_mae_medio": 6.174971962030415e-06,
+      "aumento_mae_desvio": 7.709757091318568e-07,
+      "importancia_relativa": 0.0015201335229205427
+    },
+    {
+      "feature": "prop_causa_generica_lag_1",
+      "aumento_mae_medio": 4.2251964109607345e-06,
+      "aumento_mae_desvio": 3.5362320938490305e-07,
+      "importancia_relativa": 0.0010401444321883285
+    },
+    {
+      "feature": "log_n_eventos_lag_1",
+      "aumento_mae_medio": 1.174821418353962e-06,
+      "aumento_mae_desvio": 6.146718018921717e-07,
+      "importancia_relativa": 0.00028921352719757024
+    },
+    {
+      "feature": "n_distribuidoras_lag_1",
+      "aumento_mae_medio": -5.858340814193786e-10,
+      "aumento_mae_desvio": 3.178571859858695e-09,
+      "importancia_relativa": 0.0
+    },
+    {
+      "feature": "lag_3",
+      "aumento_mae_medio": -8.120730232448643e-07,
+      "aumento_mae_desvio": 1.3203995982859307e-06,
+      "importancia_relativa": 0.0
+    },
+    {
+      "feature": "regiao",
+      "aumento_mae_medio": -4.428710682195802e-06,
+      "aumento_mae_desvio": 3.13937071152444e-07,
+      "importancia_relativa": 0.0
+    },
+    {
+      "feature": "mes_cos",
+      "aumento_mae_medio": -7.417193098812579e-05,
+      "aumento_mae_desvio": 2.495752608501192e-06,
+      "importancia_relativa": 0.0
+    }
+  ]
+}

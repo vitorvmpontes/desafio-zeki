@@ -13,9 +13,9 @@ Este projeto está em desenvolvimento ativo (prazo de 7 dias corridos). O checkl
 - [x] Pipeline de ingestão e limpeza dos dados da ANEEL (`etl/`) — validado de ponta a ponta contra os 18,9M de eventos reais (2024+2025), gerando 131.793 linhas município × mês (ver `docs/DEVLOG.md`)
 - [x] Análise exploratória (`ml/notebooks/01-eda.ipynb`) e baseline de previsão de risco (`ml/notebooks/02-baseline.ipynb`), ambos executados contra o dado real — ver `ml/README.md`
 - [x] Modelo real de previsão de risco (GLM Poisson/binomial negativa + gradient boosting, `ml/`) — validados contra o dado real e comparados ao baseline; modelo final salvo em `ml/artifacts/modelo_final.joblib` — ver `ml/README.md`
-- [ ] API — indicadores, ranking e explicação (`api/`)
-- [ ] Frontend — ranking e detalhe do município (`web/`)
-- [ ] Automação mensal (GitHub Actions)
+- [x] API — indicadores, ranking e explicação (`api/`) — endpoints (FastAPI + Postgres), validados contra dado real e testados (`tests/test_api.py`) — ver `api/README.md`
+- [x] Frontend, em tema escuro (`web/`) — ranking, detalhe do município e três páginas de apoio à decisão para o gestor de manutenção: Priorização (impacto real + ação recomendada), Tendências (piorando/melhorando + calendário sazonal) e Geografia (desempenho geográfico com mapa real de clusters via KML + MTTR por região) — React + Vite + TypeScript, consumindo a API real; validado de ponta a ponta com Playwright contra a API e o Postgres reais — ver `web/README.md`
+- [x] Automação mensal (`.github/workflows/atualizacao-mensal.yml`) — cron mensal + disparo manual, reprocessa os dados, retreina o modelo e publica os artefatos atualizados; ver `docs/ARQUITETURA.md`
 - [ ] Vídeo de demonstração
 
 ## O problema
@@ -40,15 +40,16 @@ cd desafio-zeki
 cp .env.example .env
 docker compose up -d db
 
-# pipeline de dados
-pip install -r etl/requirements.txt -r requirements-dev.txt
-python -m etl.download --anos 2024,2025    # precisa de internet ate dadosabertos.aneel.gov.br
-python -m etl.pipeline --anos 2024,2025    # gera data/processed/municipio_mes.parquet
-pytest                                      # roda a suite de testes (nao depende de rede)
+# pipeline de dados (make calcula os anos sozinho: 2024 ate o ano corrente --
+# ver "Atualização recorrente" abaixo. Sem make, troque $(ANOS) por uma lista
+# explicita, ex.: --anos 2024,2025,2026)
+pip install -r etl/requirements.txt -r ml/requirements.txt -r requirements-dev.txt
+make download    # = python -m etl.download --anos <2024..ano corrente> -- precisa de internet ate dadosabertos.aneel.gov.br
+make ingest      # = python -m etl.pipeline --anos <2024..ano corrente> -- gera data/processed/municipio_mes.parquet
+pytest           # roda a suite de testes (nao depende de rede)
 
 # analise exploratoria + baseline + modelagem (notebooks ja executados e
 # commitados em ml/notebooks/ -- so precisa rodar de novo se o dado mudar)
-pip install -r ml/requirements.txt
 python3 -m ipykernel install --user --name python3
 python ml/scripts/build_01_eda_notebook.py
 python ml/scripts/build_02_baseline_notebook.py
@@ -56,23 +57,42 @@ python ml/scripts/build_03_features_notebook.py
 python ml/scripts/build_04_modelagem_notebook.py
 
 # treina e salva o modelo final (ml/artifacts/modelo_final.joblib) que a API vai consumir
-python -m ml.train
+make train                # = python -m ml.train
+make exportar-artefatos   # = importancia de features + mapa de clusters (KML), ver ml/README.md
+
+# API (Dia 5): carrega o banco e sobe o servico
+make load-db              # carrega data/processed/municipio_mes.parquet no Postgres (ja de pe, ver "docker compose up -d db" acima)
+docker compose up -d api  # builda e sobe a API -- http://localhost:8000/docs
+pytest tests/test_api.py -v    # testes de integracao dos endpoints (nao dependem de Postgres, ver api/README.md)
+
+# Frontend (Dia 6): sobe o painel consumindo a API acima
+docker compose up -d --build web   # builda e sobe o frontend -- http://localhost:3000
 ```
 
 > Nota sobre o download: além dos Parquet anuais, `etl.download` também baixa o de-para conjunto→município da ANEEL ("IndQual Município", `data/raw/indqual_municipio.csv`), necessário para resolver o município de cada interrupção. Ver `etl/README.md`.
 
-Os demais serviços (`api`, `web`) serão adicionados aos comandos acima conforme forem implementados — acompanhe o checklist no topo deste README e o [`docs/DEVLOG.md`](docs/DEVLOG.md).
+> Para rodar só o frontend em modo de desenvolvimento (sem rebuildar a imagem a cada mudança): `cd web && npm install && cp .env.example .env && npm run dev` (com a API já de pé em `http://localhost:8000` — ajuste `VITE_API_URL` em `web/.env` se for outro endereço). Ver `web/README.md`.
+
+## Atualização recorrente (dados mensais)
+
+A ANEEL republica o Parquet do ano corrente com dados novos todo mês -- o Continua foi pensado desde o Dia 1 para reprocessar isso sem intervenção manual, não só para a carga inicial:
+
+- **`make atualizar-mensal`** roda a sequência inteira de novo (`download` → `ingest` → `test` → `load-db` → `train` → `exportar-artefatos`), sempre com os anos calculados automaticamente (2024 até o ano corrente, sem precisar editar nada quando o ano vira). Todo passo é idempotente -- rodar de novo num mês sem publicação nova da ANEEL não muda nada.
+- **`.github/workflows/atualizacao-mensal.yml`** roda essa mesma sequência (via `make atualizar-mensal`, a mesma fonte de verdade) no dia 5 de cada mês, ou a qualquer momento via disparo manual ("Run workflow" na aba Actions do GitHub). Sem servidor pago rodando continuamente para "reimplantar" durante a avaliação do desafio, republicar significa: sobe a API de verdade contra os artefatos novos e roda um smoke test antes de publicar; os artefatos grandes (dado processado + modelo treinado) viram assets de uma [GitHub Release](../../releases) mensal (tag `dados-AAAA-MM`); os artefatos pequenos e já versionados (`ml/artifacts/importancia_features.json`, `mapa_clusters.kml`, `modelo_final_metadata.json`) são commitados de volta em `main`. Detalhes e decisões em `docs/ARQUITETURA.md` e `docs/REQUISITOS.md` ("Dia 7").
+- **Para pular o reprocessamento completo** (que baixa e processa os Parquet anuais inteiros da ANEEL): baixe os assets da Release mensal mais recente em vez de rodar `make download`/`make ingest` -- é o mesmo `municipio_mes.parquet`/`modelo_final.joblib` que o workflow acabou de gerar e validar.
 
 ## Estrutura do repositório
 
 ```
 desafio-zeki/
+├── .github/workflows/  CI (lint + testes) e a automação mensal (atualizacao-mensal.yml)
 ├── docs/            análise de requisitos, arquitetura e log de desenvolvimento
 ├── etl/             ingestão, limpeza e agregação dos dados da ANEEL
 ├── ml/              exploração de dados e treino do modelo de risco
 ├── api/             backend (FastAPI) — indicadores, ranking e previsão
-├── web/             frontend — ranking e detalhe do município
+├── web/             frontend (tema escuro) — ranking, detalhe do município, priorização, tendências e geografia
 ├── tests/           testes automatizados (fixtures sintéticas, sem dependência de rede)
+├── Makefile         atalhos para os passos do pipeline, inclusive a atualização mensal completa
 └── data/            dados (raw/processed ignorados pelo git; reference e sample versionadas)
 ```
 

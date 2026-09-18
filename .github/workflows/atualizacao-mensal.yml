@@ -1,0 +1,111 @@
+name: Atualização mensal
+
+# A ANEEL republica o Parquet do ano corrente com dados novos todo mês (ver
+# docs/ARQUITETURA.md, "Recorrência sem infraestrutura paga"). Este workflow
+# reproduz localmente a mesma sequência descrita em `README.md` ("Como rodar
+# do zero"), só que via `make atualizar-mensal` -- uma única fonte de verdade
+# para os passos, reaproveitada tanto por um humano rodando na própria
+# máquina quanto por esta automação.
+#
+# Não há servidor pago rodando a API continuamente para "reimplantar": o que
+# este workflow publica são os ARTEFATOS atualizados (dados processados +
+# modelo treinado) -- ver os dois passos finais e a nota em
+# docs/ARQUITETURA.md sobre a divisão release/commit.
+
+on:
+  schedule:
+    # A ANEEL não publica no dia 1 exato -- dia 5 de cada mês, 06:00 UTC (3h
+    # em Brasília), dá uma margem confortável. workflow_dispatch abaixo
+    # permite disparar manualmente a qualquer momento (ex.: para demonstrar
+    # a automação sem esperar o cron, ou reprocessar fora do calendário).
+    - cron: "0 6 5 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # necessario para o commit automatico dos artefatos pequenos (ultimo passo)
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências Python
+        run: pip install -r etl/requirements.txt -r ml/requirements.txt -r api/requirements.txt -r requirements-dev.txt
+
+      - name: Testes (antes de gastar tempo baixando/reprocessando dado real)
+        run: pytest -v
+
+      - name: Preparar .env e subir Postgres
+        run: |
+          cp .env.example .env
+          docker compose up -d db
+
+      - name: Baixar dados atualizados da ANEEL e reprocessar + retreinar
+        # `make atualizar-mensal` = download + ingest + test + load-db +
+        # train + exportar-artefatos, nessa ordem (ver Makefile). Todo o
+        # pipeline é idempotente (etl/download.py só rebaixa o que mudou;
+        # etl/pipeline.py e etl/load_db.py sempre reescrevem do zero) --
+        # rodar este workflow duas vezes no mesmo mês, ou num mês sem
+        # publicação nova da ANEEL, é seguro e não deveria produzir nada
+        # diferente do que já está publicado.
+        run: make atualizar-mensal
+
+      - name: Smoke test -- sobe a API de verdade com os artefatos novos
+        run: |
+          docker compose up -d --build api
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/health > /dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:8000/health
+          curl -sf "http://localhost:8000/ranking?limite=5" | python3 -m json.tool > /dev/null
+          curl -sf "http://localhost:8000/priorizacao?limite=5" | python3 -m json.tool > /dev/null
+          curl -sf "http://localhost:8000/mapa" | python3 -m json.tool > /dev/null
+
+      - name: Derrubar containers
+        if: always()
+        run: docker compose down -v
+
+      - name: Publicar dados e modelo atualizados como GitHub Release
+        # data/processed/municipio_mes.parquet e ml/artifacts/*.joblib são
+        # gitignorados de propósito (artefatos grandes -- ver .gitignore) --
+        # a Release é o mecanismo de publicação deles, não um commit. Quem
+        # quiser pular o reprocessamento completo (que precisa baixar os
+        # Parquet anuais inteiros da ANEEL) pode baixar os assets desta
+        # release em vez de rodar `make download && make ingest`.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="dados-$(date +%Y-%m)"
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh release create "$TAG" \
+            data/processed/municipio_mes.parquet \
+            ml/artifacts/modelo_final.joblib \
+            ml/artifacts/modelo_final_metadata.json \
+            --title "Dados e modelo atualizados -- $(date +'%m/%Y')" \
+            --notes "Reprocessamento automático mensal a partir dos dados públicos da ANEEL (ver .github/workflows/atualizacao-mensal.yml e docs/ARQUITETURA.md)." \
+            --latest
+
+      - name: Commitar artefatos pequenos que mudaram
+        # importancia_features.json, mapa_clusters.kml e
+        # modelo_final_metadata.json SÃO versionados (ver .gitignore) --
+        # pequenos o suficiente para ficar no histórico do git, e é útil
+        # revisar a diferença mês a mês direto no repositório. `git diff
+        # --cached --quiet` faz o commit ser um no-op seguro quando a ANEEL
+        # ainda não publicou nada novo desde a última execução (mesmo
+        # princípio de idempotência do resto do pipeline).
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ml/artifacts/importancia_features.json ml/artifacts/mapa_clusters.kml ml/artifacts/modelo_final_metadata.json
+          if git diff --cached --quiet; then
+            echo "Nada novo para commitar -- ANEEL ainda nao publicou dado novo desde a ultima execucao."
+          else
+            git commit -m "chore: atualização mensal automática dos dados ANEEL ($(date +%Y-%m))"
+            git push
+          fi

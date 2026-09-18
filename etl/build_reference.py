@@ -21,6 +21,13 @@ que o webservice oficial do IBGE para esse caso de uso pontual.
 
 Uso:
     python -m etl.build_reference
+
+Também carrega `latitude`/`longitude` (sede do município) do mesmo CSV bruto
+da fonte -- usadas pelo mapa de clusters de qualidade de serviço
+(`ml/mapa.py`, pedido do usuário: "criar um mapa de verdade, usando um
+arquivo KML gerado a partir de alguma clusterização"). Não havia necessidade
+de coordenadas para nenhum outro cálculo do produto até agora, por isso
+ficavam de fora de `colunas_finais`.
 """
 import logging
 
@@ -38,12 +45,18 @@ def build_reference() -> pd.DataFrame:
 
     df = municipios.merge(estados, on="codigo_uf", how="left", suffixes=("_municipio", "_uf"))
 
+    # estados.csv TAMBEM tem latitude/longitude (do centroide do ESTADO, nao
+    # do municipio) -- por isso o merge acima gera sufixo em ambas as
+    # colunas (`_municipio`/`_uf`); a coordenada que queremos e a do
+    # municipio (sede), nao a do estado.
     df = df.rename(
         columns={
             "codigo_ibge": "codigo_ibge_7",
             "nome_municipio": "nome_municipio",
             "uf": "uf_sigla",
             "nome_uf": "nome_uf",
+            "latitude_municipio": "latitude",
+            "longitude_municipio": "longitude",
         }
     )
 
@@ -59,6 +72,8 @@ def build_reference() -> pd.DataFrame:
         "uf_sigla",
         "nome_uf",
         "regiao",
+        "latitude",
+        "longitude",
     ]
     df = df[colunas_finais].sort_values("codigo_ibge_7").reset_index(drop=True)
 

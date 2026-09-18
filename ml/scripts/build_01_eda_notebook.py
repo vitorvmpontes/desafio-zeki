@@ -176,12 +176,14 @@ plt.show()
 """)
 
 md("""\
-**Conclusao:** em volume absoluto o Sudeste domina (mais consumidores). Mas
-normalizando por consumidor -- a mesma logica do FEC regulatorio -- o quadro
-muda: Norte e Nordeste tem taxa de eventos por consumidor sensivelmente maior
-que Sudeste/Sul. Isso confirma que a normalizacao usada em `fec_aprox` (e nao o
-volume bruto de eventos) e a metrica certa para comparar risco entre municipios
-de tamanhos muito diferentes -- ranquear por volume bruto favoreceria sempre
+**Conclusao:** em volume absoluto o Sudeste domina (mais consumidores, mais
+eventos em numero absoluto). Mas normalizando por consumidor -- a mesma logica
+do FEC regulatorio -- o quadro muda bastante: Centro-Oeste e Norte tem a maior
+taxa de eventos por consumidor (quase o dobro do Sudeste), enquanto Sudeste e
+Nordeste ficam praticamente empatados na taxa mais baixa, apesar do Nordeste
+ter o segundo maior volume bruto. Isso confirma que a normalizacao usada em
+`fec_aprox` (e nao o volume bruto de eventos) e a metrica certa para comparar
+risco entre municipios de tamanhos muito diferentes -- ranquear por volume bruto favoreceria sempre
 cidades grandes, nao as de fato mais arriscadas.""")
 
 md("## 4. Mix de causas")

@@ -1,0 +1,18 @@
+fastapi==0.141.1
+uvicorn[standard]==0.46.0
+sqlalchemy==2.0.54
+psycopg2-binary==2.9.13
+python-dotenv==1.2.2
+
+# usados para carregar e rodar o modelo final (ml/artifacts/modelo_final.joblib)
+pandas==3.0.2
+numpy==2.4.4
+scikit-learn==1.8.0
+joblib==1.5.3
+
+# nao usado diretamente pela API, mas ml/modelos.py importa statsmodels no
+# topo do arquivo (usado pelo ModeloContagemGLM) -- mesmo a API so
+# chamando prever_gbm desse mesmo modulo, o import do modulo inteiro falha
+# sem isso instalado (ModuleNotFoundError, pego rodando o container de
+# verdade -- ver docs/DEVLOG.md, Dia 5)
+statsmodels==0.15.0

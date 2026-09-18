@@ -1,2 +1,6 @@
 ruff==0.8.4
 pytest==8.3.4
+
+# so para TestClient (tests/test_api.py) -- starlette/fastapi nao trazem
+# httpx como dependencia obrigatoria
+httpx==0.28.1

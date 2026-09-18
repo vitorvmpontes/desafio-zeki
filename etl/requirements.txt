@@ -1,3 +1,9 @@
 pandas==3.0.2
 pyarrow==25.0.1
 requests==2.33.1
+
+# so usados por etl/load_db.py (carrega municipio_mes.parquet no Postgres --
+# ver docs/DEVLOG.md, Dia 5)
+sqlalchemy==2.0.54
+psycopg2-binary==2.9.13
+python-dotenv==1.2.2

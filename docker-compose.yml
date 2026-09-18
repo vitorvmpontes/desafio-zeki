@@ -1,7 +1,3 @@
-# Serviços de api e web serão adicionados aqui conforme forem implementados
-# (dias 5 e 6 do plano em docs/DEVLOG.md) — mantendo este arquivo sempre
-# funcional em vez de referenciar Dockerfiles que ainda não existem.
-
 services:
   db:
     image: postgres:16-alpine
@@ -15,6 +11,39 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    env_file: .env
+    environment:
+      # sobrescreve o DATABASE_URL do .env (que aponta para "localhost",
+      # certo para rodar etl.load_db do HOST): dentro da rede do compose o
+      # Postgres e alcancado pelo nome do servico, "db", nao "localhost".
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    # a tabela municipio_mes precisa ja existir no banco antes da API subir
+    # (via `make load-db` / `python -m etl.load_db`, rodado do HOST contra
+    # localhost:5432 -- ver README.md "como rodar do zero") -- a API so LE
+    # do Postgres, nao carrega dado nenhum.
+
+  web:
+    build:
+      context: ./web
+      args:
+        # Vite injeta isso em tempo de BUILD (nao de execucao) -- precisa
+        # ser o endereco que o NAVEGADOR do usuario alcanca, nao um nome
+        # interno da rede do compose (por isso "localhost:8000", nao "api:8000").
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
 
 volumes:
   db_data:
